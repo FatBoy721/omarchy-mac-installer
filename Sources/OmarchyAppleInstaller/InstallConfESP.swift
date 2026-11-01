@@ -248,6 +248,7 @@
     private let workingDirectory: URL
     private let fileManager: FileManager
     private let contentsOf: @Sendable (Int32) throws -> Data
+    private let synchronizeDirectory: @Sendable (Int32) -> Void
 
     init(
       disks: any InstallConfESPDiskOperating,
@@ -255,12 +256,14 @@
       fileManager: FileManager = .default,
       contentsOf: @escaping @Sendable (Int32) throws -> Data = {
         try FileHandle(fileDescriptor: $0, closeOnDealloc: false).read(upToCount: 1024) ?? Data()
-      }
+      },
+      synchronizeDirectory: @escaping @Sendable (Int32) -> Void = Self.bestEffortDirectorySync
     ) {
       self.disks = disks
       self.workingDirectory = workingDirectory
       self.fileManager = fileManager
       self.contentsOf = contentsOf
+      self.synchronizeDirectory = synchronizeDirectory
     }
 
     func write(
@@ -313,9 +316,9 @@
     private func writeAndVerify(_ conf: InstallConf, on root: Int32) throws {
       defer { Darwin.close(root) }
       var rootInfo = stat()
-      guard fstat(root, &rootInfo) == 0,
-        mkdirat(root, InstallConf.directoryName, 0o755) == 0 || errno == EEXIST
-      else { throw InstallConfESPError.writeFailed }
+      guard fstat(root, &rootInfo) == 0 else { throw InstallConfESPError.writeFailed }
+      let createdDirectory = mkdirat(root, InstallConf.directoryName, 0o755) == 0
+      guard createdDirectory || errno == EEXIST else { throw InstallConfESPError.writeFailed }
       let directory = openat(
         root, InstallConf.directoryName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
       guard directory >= 0 else { throw InstallConfESPError.writeFailed }
@@ -341,6 +344,10 @@
       guard renameat(directory, temporary, directory, InstallConf.fileName) == 0 else {
         throw InstallConfESPError.writeFailed
       }
+      // A busy volume may stay mounted. Flush the rename and any new parent
+      // entry before readback, even when a later unmount cannot flush them.
+      synchronizeDirectory(directory)
+      if createdDirectory { synchronizeDirectory(root) }
       let readback = openat(
         directory, InstallConf.fileName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
       guard readback >= 0 else { throw InstallConfESPError.readbackMismatch }
@@ -360,6 +367,12 @@
       guard observed == conf.serializedData,
         let parsed = try? InstallConf.parse(observed), parsed == conf
       else { throw InstallConfESPError.readbackMismatch }
+    }
+
+    private static func bestEffortDirectorySync(_ descriptor: Int32) {
+      // Some filesystem implementations do not support directory syncs.
+      _ = fsync(descriptor)
+      _ = fcntl(descriptor, F_FULLFSYNC)
     }
   }
 

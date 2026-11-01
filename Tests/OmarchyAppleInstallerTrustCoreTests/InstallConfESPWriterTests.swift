@@ -261,6 +261,31 @@
       ) { XCTAssertEqual($0 as? InstallConfESPError, .mountFailed) }
     }
 
+    func testDirectorySyncObservesTheRenamedChoiceAndAnyNewParent() throws {
+      let next = try InstallConf(encrypt: false, lane: "edge")
+      let seeds: [Data?] = [nil, try InstallConf(encrypt: true, lane: "stable").serializedData]
+      for seed in seeds {
+        let root = FileManager.default.temporaryDirectory
+          .appendingPathComponent("esp-sync-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let disks = MockESPDisks(
+          partitions: [
+            .init(
+              identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+              name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+          ],
+          seedDocument: seed)
+        let sync = DirectorySyncRecorder()
+        try InstallConfESPMountWriter(
+          disks: disks, workingDirectory: root, synchronizeDirectory: sync.record
+        ).write(next, storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+        XCTAssertEqual(
+          sync.documents, seed == nil ? [next.serializedData, nil] : [next.serializedData])
+        XCTAssertTrue(disks.descriptorsWereClosedBeforeUnmount)
+      }
+    }
+
     func testMountWriterSurfacesReadbackMismatch() throws {
       let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("esp-writer-\(UUID().uuidString)", isDirectory: true)
@@ -389,6 +414,25 @@
       _ = lengthBytes
       try result.get()
       return .recorded
+    }
+  }
+
+  private final class DirectorySyncRecorder: @unchecked Sendable {
+    private(set) var documents: [Data?] = []
+
+    func record(_ directory: Int32) {
+      let file = openat(directory, InstallConf.fileName, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+      if file >= 0 {
+        defer { Darwin.close(file) }
+        documents.append(
+          try? FileHandle(fileDescriptor: file, closeOnDealloc: false).read(upToCount: 1024))
+      } else {
+        let child = openat(
+          directory, InstallConf.directoryName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        XCTAssertGreaterThanOrEqual(child, 0)
+        if child >= 0 { Darwin.close(child) }
+        documents.append(nil)
+      }
     }
   }
 
