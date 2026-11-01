@@ -790,10 +790,13 @@
       partitionsToReturn.filter { $0.storeIdentifier == storeIdentifier }
     }
 
-    func mount(_ identifier: String, at mountPoint: URL) throws {
+    func mount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
       mountCalls += 1
       try FileManager.default.createDirectory(
         at: mountPoint, withIntermediateDirectories: true)
+      let descriptor = Darwin.open(mountPoint.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+      guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
+      return descriptor
     }
 
     func unmount(_ identifier: String) throws {

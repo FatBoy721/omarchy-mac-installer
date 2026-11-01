@@ -13,6 +13,8 @@ Moving to another identity or host is an edit to `identity.conf` followed by `sc
 
 ## Bundle layout
 
+The helper saves the encryption checkbox and release lane in `omarchy/install.conf` on the new Omarchy EFI partition after the engine completes. It reuses an existing writable mount only after verifying its device and mount root, or creates a verified private mount when necessary. Writes and readback stay relative to pinned directory descriptors, then the helper attempts a normal unmount. A busy volume therefore cannot prevent the choice from being written merely because Spotlight is using it. An unmount failure after the write retains the existing saved-but-unconfirmed result. See [EFI encryption handoff](../docs/efi-encryption-handoff.md) for the failure diagnosis and validation boundary.
+
 The generated `Omarchy Installer.app` contains:
 
 - the SwiftUI application in `Contents/MacOS`;

@@ -236,28 +236,34 @@
 
   protocol InstallConfESPDiskOperating: Sendable {
     func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition]
-    func mount(_ identifier: String, at mountPoint: URL) throws
+    /// Returns a verified mount-root descriptor, owned by the caller.
+    func mount(_ identifier: String, at mountPoint: URL) throws -> Int32
     func unmount(_ identifier: String) throws
   }
 
-  /// Privileged writer used by the helper: mount the identified ESP read-write
-  /// at a private mount point, write atomically, read back, unmount.
+  /// Reuse the identified ESP's verified mount, or mount it privately, then
+  /// write and read back through pinned descriptors before unmounting.
   struct InstallConfESPMountWriter: @unchecked Sendable {
     private let disks: any InstallConfESPDiskOperating
     private let workingDirectory: URL
     private let fileManager: FileManager
-    private let contentsOf: @Sendable (URL) throws -> Data
+    private let contentsOf: @Sendable (Int32) throws -> Data
+    private let synchronizeDirectory: @Sendable (Int32) -> Void
 
     init(
       disks: any InstallConfESPDiskOperating,
       workingDirectory: URL,
       fileManager: FileManager = .default,
-      contentsOf: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
+      contentsOf: @escaping @Sendable (Int32) throws -> Data = {
+        try FileHandle(fileDescriptor: $0, closeOnDealloc: false).read(upToCount: 1024) ?? Data()
+      },
+      synchronizeDirectory: @escaping @Sendable (Int32) -> Void = Self.bestEffortDirectorySync
     ) {
       self.disks = disks
       self.workingDirectory = workingDirectory
       self.fileManager = fileManager
       self.contentsOf = contentsOf
+      self.synchronizeDirectory = synchronizeDirectory
     }
 
     func write(
@@ -281,14 +287,15 @@
         withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700]
       )
+      // Even a failed verification can leave a filesystem attached here.
+      // Never recursively remove a mount's contents during cleanup.
+      defer { _ = Darwin.rmdir(mountPoint.path) }
+      let descriptor: Int32
       var mounted = false
       do {
-        try disks.mount(identity.partitionIdentifier, at: mountPoint)
+        descriptor = try disks.mount(identity.partitionIdentifier, at: mountPoint)
         mounted = true
       } catch {
-        // A failed mount verification may leave a filesystem attached here.
-        // Never recursively remove its contents while cleaning up the directory.
-        _ = Darwin.rmdir(mountPoint.path)
         throw InstallConfESPError.mountFailed
       }
       defer {
@@ -296,72 +303,82 @@
           try? disks.unmount(identity.partitionIdentifier)
         }
       }
-      try writeAtomically(conf, on: mountPoint)
-      let readback =
-        mountPoint
-        .appendingPathComponent(InstallConf.directoryName, isDirectory: true)
-        .appendingPathComponent(InstallConf.fileName)
-      let observed: Data
-      do {
-        observed = try contentsOf(readback)
-      } catch {
-        throw InstallConfESPError.readbackMismatch
-      }
-      guard let parsed = try? InstallConf.parse(observed), parsed == conf,
-        observed == conf.serializedData
-      else {
-        throw InstallConfESPError.readbackMismatch
-      }
+      // This closes every descriptor before diskutil unmount, including errors.
+      try writeAndVerify(conf, on: descriptor)
       do {
         try disks.unmount(identity.partitionIdentifier)
         mounted = false
       } catch {
         throw InstallConfESPError.unmountFailed
       }
-      try? fileManager.removeItem(at: mountPoint)
     }
 
-    private func writeAtomically(_ conf: InstallConf, on mountPoint: URL) throws {
-      let directory = mountPoint.appendingPathComponent(
-        InstallConf.directoryName,
-        isDirectory: true
-      )
+    private func writeAndVerify(_ conf: InstallConf, on root: Int32) throws {
+      defer { Darwin.close(root) }
+      var rootInfo = stat()
+      guard fstat(root, &rootInfo) == 0 else { throw InstallConfESPError.writeFailed }
+      let createdDirectory = mkdirat(root, InstallConf.directoryName, 0o755) == 0
+      guard createdDirectory || errno == EEXIST else { throw InstallConfESPError.writeFailed }
+      let directory = openat(
+        root, InstallConf.directoryName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+      guard directory >= 0 else { throw InstallConfESPError.writeFailed }
+      defer { Darwin.close(directory) }
+      var directoryInfo = stat()
+      guard fstat(directory, &directoryInfo) == 0, directoryInfo.st_dev == rootInfo.st_dev else {
+        throw InstallConfESPError.writeFailed
+      }
+      let temporary = ".\(InstallConf.fileName).\(UUID().uuidString.lowercased()).tmp"
+      let pending = openat(
+        directory, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+      guard pending >= 0 else { throw InstallConfESPError.writeFailed }
+      defer { _ = unlinkat(directory, temporary, 0) }
+      let handle = FileHandle(fileDescriptor: pending, closeOnDealloc: true)
+      defer { try? handle.close() }
       do {
-        try fileManager.createDirectory(
-          at: directory,
-          withIntermediateDirectories: true,
-          attributes: [.posixPermissions: 0o755]
-        )
-        let destination = directory.appendingPathComponent(InstallConf.fileName)
-        let temporary = directory.appendingPathComponent(
-          ".\(InstallConf.fileName).tmp"
-        )
-        if fileManager.fileExists(atPath: temporary.path) {
-          try fileManager.removeItem(at: temporary)
-        }
-        try conf.serializedData.write(to: temporary, options: .withoutOverwriting)
-        try fileManager.setAttributes(
-          [.posixPermissions: 0o644],
-          ofItemAtPath: temporary.path
-        )
-        let handle = try FileHandle(forWritingTo: temporary)
+        try handle.write(contentsOf: conf.serializedData)
         try handle.synchronize()
         try handle.close()
-        if fileManager.fileExists(atPath: destination.path) {
-          _ = try fileManager.replaceItemAt(destination, withItemAt: temporary)
-        } else {
-          try fileManager.moveItem(at: temporary, to: destination)
-        }
-      } catch let error as InstallConfESPError {
-        throw error
       } catch {
         throw InstallConfESPError.writeFailed
       }
+      guard renameat(directory, temporary, directory, InstallConf.fileName) == 0 else {
+        throw InstallConfESPError.writeFailed
+      }
+      // A busy volume may stay mounted. Flush the rename and any new parent
+      // entry before readback, even when a later unmount cannot flush them.
+      synchronizeDirectory(directory)
+      if createdDirectory { synchronizeDirectory(root) }
+      let readback = openat(
+        directory, InstallConf.fileName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+      guard readback >= 0 else { throw InstallConfESPError.readbackMismatch }
+      defer { Darwin.close(readback) }
+      var observedInfo = stat()
+      guard fstat(readback, &observedInfo) == 0,
+        (observedInfo.st_mode & S_IFMT) == S_IFREG,
+        observedInfo.st_dev == rootInfo.st_dev,
+        observedInfo.st_size == conf.serializedData.count
+      else { throw InstallConfESPError.readbackMismatch }
+      let observed: Data
+      do {
+        observed = try contentsOf(readback)
+      } catch {
+        throw InstallConfESPError.readbackMismatch
+      }
+      guard observed == conf.serializedData,
+        let parsed = try? InstallConf.parse(observed), parsed == conf
+      else { throw InstallConfESPError.readbackMismatch }
+    }
+
+    private static func bestEffortDirectorySync(_ descriptor: Int32) {
+      // Some filesystem implementations do not support directory syncs.
+      _ = fsync(descriptor)
+      _ = fcntl(descriptor, F_FULLFSYNC)
     }
   }
 
   struct DiskutilInstallConfESPOperator: InstallConfESPDiskOperating {
     var commands: @Sendable ([String]) throws -> Data = Self.systemRun
+    var openMount: @Sendable (String, URL) throws -> Int32 = Self.openVerifiedMount
 
     func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition] {
       let listing = try plist(["list", "-plist", storeIdentifier])
@@ -394,15 +411,18 @@
       }
     }
 
-    func mount(_ identifier: String, at mountPoint: URL) throws {
+    func mount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
       let before = try plist(["info", "-plist", identifier])
       guard before["DeviceIdentifier"] as? String == identifier else {
         throw InstallConfESPError.mountFailed
       }
-      // The engine leaves its ESP mounted in /Volumes. diskutil mount can
-      // succeed without moving an existing mount to the requested directory.
+      // Spotlight can keep the engine's existing mount busy. Save the choice
+      // there first, after proving the opened directory belongs to this ESP.
       if let existing = before["MountPoint"] as? String, !existing.isEmpty {
-        try unmount(identifier)
+        guard before["WritableVolume"] as? Bool == true else {
+          throw InstallConfESPError.mountFailed
+        }
+        return try openMount(identifier, URL(fileURLWithPath: existing, isDirectory: true))
       }
       do {
         _ = try run(["mount", "-mountPoint", mountPoint.path, identifier])
@@ -413,10 +433,39 @@
           URL(fileURLWithPath: actual).resolvingSymlinksInPath().standardizedFileURL.path
             == mountPoint.resolvingSymlinksInPath().standardizedFileURL.path
         else { throw InstallConfESPError.mountFailed }
+        return try openMount(identifier, mountPoint)
       } catch {
         try? unmount(identifier)
         throw InstallConfESPError.mountFailed
       }
+    }
+
+    static func openVerifiedMount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
+      guard let resolved = realpath(mountPoint.path, nil) else {
+        throw InstallConfESPError.mountFailed
+      }
+      let path = String(cString: resolved)
+      free(resolved)
+      let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+      guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
+      var filesystem = statfs()
+      var opened = stat()
+      var named = stat()
+      func text<T>(_ value: inout T) -> String {
+        withUnsafeBytes(of: &value) { bytes in
+          String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+        }
+      }
+      guard fstatfs(descriptor, &filesystem) == 0, fstat(descriptor, &opened) == 0,
+        text(&filesystem.f_mntfromname) == "/dev/\(identifier)",
+        text(&filesystem.f_mntonname) == path,
+        filesystem.f_flags & UInt32(MNT_RDONLY) == 0,
+        lstat(path, &named) == 0, named.st_dev == opened.st_dev, named.st_ino == opened.st_ino
+      else {
+        Darwin.close(descriptor)
+        throw InstallConfESPError.mountFailed
+      }
+      return descriptor
     }
 
     func unmount(_ identifier: String) throws {

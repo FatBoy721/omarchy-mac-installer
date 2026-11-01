@@ -8,12 +8,25 @@
     private let destination = URL(
       fileURLWithPath: "/private/var/run/omarchy-mount-test", isDirectory: true)
 
-    func testAlreadyMountedESPIsMovedBeforeWriting() throws {
+    func testAlreadyMountedESPIsVerifiedBeforeReuse() throws {
       let disk = MountFixture(mountPoint: "/Volumes/EFI - OMARC")
-      let operatorUnderTest = DiskutilInstallConfESPOperator(commands: disk.run)
-      try operatorUnderTest.mount("disk5s1", at: destination)
+      let operatorUnderTest = DiskutilInstallConfESPOperator(
+        commands: disk.run, openMount: disk.openMount)
+      let descriptor = try operatorUnderTest.mount("disk5s1", at: destination)
+      defer { Darwin.close(descriptor) }
+      XCTAssertEqual(disk.openedMounts, ["disk5s1:/Volumes/EFI - OMARC"])
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info"])
+    }
+
+    func testUnmountedESPIsMountedAtThePrivateDestination() throws {
+      let disk = MountFixture()
+      let operatorUnderTest = DiskutilInstallConfESPOperator(
+        commands: disk.run, openMount: disk.openMount)
+      let descriptor = try operatorUnderTest.mount("disk5s1", at: destination)
+      defer { Darwin.close(descriptor) }
       XCTAssertEqual(disk.mountPoint, destination.path)
-      XCTAssertEqual(disk.calls.map { $0[0] }, ["info", "unmount", "mount", "info"])
+      XCTAssertEqual(disk.openedMounts, ["disk5s1:\(destination.path)"])
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info", "mount", "info"])
     }
 
     func testSuccessfulCommandAtWrongMountPointIsRejected() {
@@ -42,12 +55,40 @@
       XCTAssertEqual(disk.calls.last, ["unmount", "disk5s1"])
     }
 
-    func testBusyExistingMountIsNeverForcedOrWrittenThrough() {
-      let disk = MountFixture(mountPoint: "/Volumes/EFI - OMARC", refusesUnmount: true)
+    func testReadOnlyExistingMountIsRejectedWithoutUnmounting() {
+      let disk = MountFixture(mountPoint: "/Volumes/EFI - OMARC", writable: false)
       let operatorUnderTest = DiskutilInstallConfESPOperator(commands: disk.run)
       XCTAssertThrowsError(try operatorUnderTest.mount("disk5s1", at: destination))
-      XCTAssertEqual(disk.calls.map { $0[0] }, ["info", "unmount"])
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info"])
       XCTAssertEqual(disk.mountPoint, "/Volumes/EFI - OMARC")
+    }
+
+    func testBusyExistingMountDoesNotBlockSavingTheChoice() throws {
+      let disk = MountFixture(mountPoint: "/Volumes/EFI - OMARC", refusesUnmount: true)
+      let operatorUnderTest = DiskutilInstallConfESPOperator(
+        commands: disk.run, openMount: disk.openMount)
+      let descriptor = try operatorUnderTest.mount("disk5s1", at: destination)
+      defer { Darwin.close(descriptor) }
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info"])
+      XCTAssertEqual(disk.mountPoint, "/Volumes/EFI - OMARC")
+    }
+
+    func testExistingPathOnAnotherFilesystemIsRejected() {
+      let disk = MountFixture(mountPoint: FileManager.default.temporaryDirectory.path)
+      let operatorUnderTest = DiskutilInstallConfESPOperator(commands: disk.run)
+      XCTAssertThrowsError(try operatorUnderTest.mount("disk5s1", at: destination)) {
+        XCTAssertEqual($0 as? InstallConfESPError, .mountFailed)
+      }
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info"])
+    }
+
+    func testUnverifiedExistingMountIsRejected() {
+      let disk = MountFixture(mountPoint: "/Volumes/EFI - OMARC")
+      let operatorUnderTest = DiskutilInstallConfESPOperator(
+        commands: disk.run,
+        openMount: { _, _ in throw InstallConfESPError.mountFailed })
+      XCTAssertThrowsError(try operatorUnderTest.mount("disk5s1", at: destination))
+      XCTAssertEqual(disk.calls.map { $0[0] }, ["info"])
     }
   }
 
@@ -59,6 +100,7 @@
     let refusesUnmount: Bool
     let failsAfterMount: Bool
     var calls: [[String]] = []
+    var openedMounts: [String] = []
 
     init(
       mountPoint: String? = nil, forcedMountPoint: String? = nil,
@@ -69,6 +111,14 @@
       self.writable = writable
       self.refusesUnmount = refusesUnmount
       self.failsAfterMount = failsAfterMount
+    }
+
+    func openMount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
+      openedMounts.append("\(identifier):\(mountPoint.path)")
+      let descriptor = Darwin.open(
+        FileManager.default.temporaryDirectory.path, O_RDONLY | O_DIRECTORY)
+      guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
+      return descriptor
     }
 
     func run(_ arguments: [String]) throws -> Data {
