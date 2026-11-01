@@ -201,7 +201,7 @@
             identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
             name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
         ],
-        unmountFailuresRemaining: 1
+        unmountFailuresRemaining: 2
       )
       let writer = InstallConfESPMountWriter(disks: disks, workingDirectory: root)
       XCTAssertThrowsError(
@@ -283,6 +283,89 @@
           storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
       ) { XCTAssertEqual($0 as? InstallConfESPError, .readbackMismatch) }
     }
+
+    func testBusyExistingMountSavesTheChoiceBeforeUnmountFailure() throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("esp-busy-\(UUID().uuidString)", isDirectory: true)
+      let existing = root.appendingPathComponent("existing", isDirectory: true)
+      try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let disks = MockESPDisks(
+        partitions: [
+          .init(
+            identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+            name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+        ],
+        unmountFailuresRemaining: Int.max,
+        existingMountPoint: existing)
+      for encrypt in [false, true] {
+        let conf = try InstallConf(encrypt: encrypt, lane: "edge")
+        XCTAssertThrowsError(
+          try InstallConfESPMountWriter(disks: disks, workingDirectory: root).write(
+            conf, storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+        ) { XCTAssertEqual($0 as? InstallConfESPError, .unmountFailed) }
+        let file = existing.appendingPathComponent(InstallConf.relativePath)
+        XCTAssertEqual(try Data(contentsOf: file), conf.serializedData)
+        XCTAssertTrue(disks.descriptorsWereClosedBeforeUnmount)
+        XCTAssertEqual(
+          try FileManager.default.contentsOfDirectory(
+            atPath: existing.appendingPathComponent("omarchy").path), ["install.conf"])
+      }
+      XCTAssertEqual(
+        try FileManager.default.contentsOfDirectory(atPath: root.path), ["existing"])
+    }
+
+    func testExistingMountCannotRedirectTheWriteThroughASymlink() throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("esp-link-\(UUID().uuidString)", isDirectory: true)
+      let existing = root.appendingPathComponent("existing", isDirectory: true)
+      let outside = root.appendingPathComponent("outside", isDirectory: true)
+      try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let sentinel = outside.appendingPathComponent(InstallConf.fileName)
+      try Data("keep".utf8).write(to: sentinel)
+      try FileManager.default.createSymbolicLink(
+        at: existing.appendingPathComponent("omarchy"), withDestinationURL: outside)
+      let disks = MockESPDisks(
+        partitions: [
+          .init(
+            identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+            name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+        ],
+        existingMountPoint: existing)
+      XCTAssertThrowsError(
+        try InstallConfESPMountWriter(disks: disks, workingDirectory: root).write(
+          try InstallConf(encrypt: false, lane: "edge"),
+          storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+      ) { XCTAssertEqual($0 as? InstallConfESPError, .writeFailed) }
+      XCTAssertEqual(try Data(contentsOf: sentinel), Data("keep".utf8))
+      XCTAssertTrue(disks.descriptorsWereClosedBeforeUnmount)
+    }
+
+    func testWriteStaysOnThePinnedRootWhenItsPathIsReplaced() throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("esp-pinned-\(UUID().uuidString)", isDirectory: true)
+      let existing = root.appendingPathComponent("existing", isDirectory: true)
+      try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let disks = MockESPDisks(
+        partitions: [
+          .init(
+            identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+            name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+        ],
+        existingMountPoint: existing,
+        replacePathAfterOpen: true)
+      let conf = try InstallConf(encrypt: false, lane: "edge")
+      try InstallConfESPMountWriter(disks: disks, workingDirectory: root).write(
+        conf, storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+      XCTAssertEqual(
+        try Data(contentsOf: root.appendingPathComponent("pinned/omarchy/install.conf")),
+        conf.serializedData)
+      XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: existing.path), [])
+      XCTAssertTrue(disks.descriptorsWereClosedBeforeUnmount)
+    }
   }
 
   private final class MockInstallConfESPHelper: InstallConfESPHelping, @unchecked Sendable {
@@ -338,6 +421,8 @@
     let partitionsToReturn: [InstallConfESPPartition]
     let mountError: InstallConfESPError?
     let seedDocument: Data?
+    let existingMountPoint: URL?
+    let replacePathAfterOpen: Bool
     var unmountFailuresRemaining: Int
     private(set) var mounted: [String] = []
     private(set) var mountCalls = 0
@@ -345,26 +430,33 @@
     private(set) var mountPoints: [URL] = []
     private(set) var capturedDocuments: [Data] = []
     private var lastMountPoint: URL?
+    private var lastDescriptor: Int32 = -1
+    private(set) var descriptorsWereClosedBeforeUnmount = true
 
     init(
       partitions: [InstallConfESPPartition],
       mountError: InstallConfESPError? = nil,
       unmountFailuresRemaining: Int = 0,
-      seedDocument: Data? = nil
+      seedDocument: Data? = nil,
+      existingMountPoint: URL? = nil,
+      replacePathAfterOpen: Bool = false
     ) {
       partitionsToReturn = partitions
       self.mountError = mountError
       self.unmountFailuresRemaining = unmountFailuresRemaining
       self.seedDocument = seedDocument
+      self.existingMountPoint = existingMountPoint
+      self.replacePathAfterOpen = replacePathAfterOpen
     }
 
     func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition] {
       partitionsToReturn.filter { $0.storeIdentifier == storeIdentifier }
     }
 
-    func mount(_ identifier: String, at mountPoint: URL) throws {
+    func mount(_ identifier: String, at requestedMountPoint: URL) throws -> Int32 {
       mountCalls += 1
-      mountPoints.append(mountPoint)
+      mountPoints.append(requestedMountPoint)
+      let mountPoint = existingMountPoint ?? requestedMountPoint
       lastMountPoint = mountPoint
       if let mountError { throw mountError }
       try FileManager.default.createDirectory(
@@ -377,10 +469,21 @@
           to: directory.appendingPathComponent(InstallConf.fileName), options: .atomic)
       }
       mounted.append(identifier)
+      lastDescriptor = Darwin.open(mountPoint.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+      if replacePathAfterOpen {
+        let pinned = mountPoint.deletingLastPathComponent().appendingPathComponent("pinned")
+        try FileManager.default.moveItem(at: mountPoint, to: pinned)
+        try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
+        lastMountPoint = pinned
+      }
+      return lastDescriptor
     }
 
     func unmount(_ identifier: String) throws {
       unmountCalls += 1
+      descriptorsWereClosedBeforeUnmount =
+        descriptorsWereClosedBeforeUnmount
+        && fcntl(lastDescriptor, F_GETFD) == -1 && errno == EBADF
       if let lastMountPoint {
         let file =
           lastMountPoint
@@ -395,6 +498,13 @@
         throw InstallConfESPError.unmountFailed
       }
       mounted.removeAll { $0 == identifier }
+      if existingMountPoint == nil, let lastMountPoint {
+        for item in try FileManager.default.contentsOfDirectory(
+          at: lastMountPoint, includingPropertiesForKeys: nil)
+        {
+          try FileManager.default.removeItem(at: item)
+        }
+      }
     }
   }
 #endif
