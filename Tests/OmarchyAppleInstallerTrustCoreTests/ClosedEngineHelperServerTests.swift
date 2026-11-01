@@ -794,7 +794,9 @@
       mountCalls += 1
       try FileManager.default.createDirectory(
         at: mountPoint, withIntermediateDirectories: true)
-      return Darwin.open(mountPoint.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+      let descriptor = Darwin.open(mountPoint.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+      guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
+      return descriptor
     }
 
     func unmount(_ identifier: String) throws {

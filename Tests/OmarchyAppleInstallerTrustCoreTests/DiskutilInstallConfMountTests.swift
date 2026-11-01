@@ -115,7 +115,10 @@
 
     func openMount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
       openedMounts.append("\(identifier):\(mountPoint.path)")
-      return Darwin.open(FileManager.default.temporaryDirectory.path, O_RDONLY | O_DIRECTORY)
+      let descriptor = Darwin.open(
+        FileManager.default.temporaryDirectory.path, O_RDONLY | O_DIRECTORY)
+      guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
+      return descriptor
     }
 
     func run(_ arguments: [String]) throws -> Data {

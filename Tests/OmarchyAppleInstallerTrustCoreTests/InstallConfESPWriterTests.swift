@@ -514,6 +514,7 @@
       }
       mounted.append(identifier)
       lastDescriptor = Darwin.open(mountPoint.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+      guard lastDescriptor >= 0 else { throw InstallConfESPError.mountFailed }
       if replacePathAfterOpen {
         let pinned = mountPoint.deletingLastPathComponent().appendingPathComponent("pinned")
         try FileManager.default.moveItem(at: mountPoint, to: pinned)
