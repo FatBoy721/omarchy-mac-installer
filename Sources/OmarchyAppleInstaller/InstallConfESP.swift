@@ -428,7 +428,11 @@
     }
 
     static func openVerifiedMount(_ identifier: String, at mountPoint: URL) throws -> Int32 {
-      let path = mountPoint.resolvingSymlinksInPath().standardizedFileURL.path
+      guard let resolved = realpath(mountPoint.path, nil) else {
+        throw InstallConfESPError.mountFailed
+      }
+      let path = String(cString: resolved)
+      free(resolved)
       let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
       guard descriptor >= 0 else { throw InstallConfESPError.mountFailed }
       var filesystem = statfs()
