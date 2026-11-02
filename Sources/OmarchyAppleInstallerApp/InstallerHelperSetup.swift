@@ -1,10 +1,14 @@
 import Foundation
 import OmarchyAppleInstallerTrustCore
 import OmarchyInstallerUXCore
+import os
 
 /// The app's one way to check and install its privileged helper, shared by
 /// the install flow and the removal sheet. It keeps no credential.
 enum InstallerHelperSetup {
+  private static let logger = Logger(
+    subsystem: InstallerProductIdentity.appIdentifier, category: "helper")
+
   /// Builds that declare their helper for `SMJobBless` install it with that;
   /// builds signed ad hoc, which `SMJobBless` refuses, install it themselves.
   static let declared = SMJobBlessInstallerHelperBlesser.isDeclared()
@@ -67,6 +71,7 @@ enum InstallerHelperSetup {
     case .unavailable:
       throw InstallerHelperSetupError.unavailable
     case .failed(let message):
+      logger.error("Helper setup failed: \(message, privacy: .public)")
       throw InstallerHelperSetupError.failed(message)
     }
   }

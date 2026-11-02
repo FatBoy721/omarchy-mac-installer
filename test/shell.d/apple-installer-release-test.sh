@@ -36,30 +36,36 @@ refuse_plan() {
 }
 
 expect_plan "a pushed v* tag is a Developer ID release of the tag's version" \
-  $'dry_run=false\nsigning=developer-id\nversion=2.2.0\nbuild_number=107\nstand_in_trust_root=false' \
-  EVENT=push REF=refs/tags/v2.2.0 RUN_NUMBER=7
+  $'dry_run=false\nsigning=developer-id\nversion=2.2.0\nbuild_number=' \
+  EVENT=push REF=refs/tags/v2.2.0
+planned_build=$(plan EVENT=push REF=refs/tags/v2.2.0 | sed -n 's/^build_number=//p')
+# A lab Mac kept a developer helper of this build until 2.3.13's build 122 could
+# not replace it: SMJobBless never replaces a helper with a lower build.
+[[ $planned_build =~ ^[0-9]{10}$ ]] && ((10#$planned_build > 2610300205)) ||
+  fail "a release build outranks earlier developer builds" "$planned_build"
+pass "a release build outranks earlier developer builds"
 expect_plan "a dispatch defaults to an ad hoc dry run" \
   $'dry_run=true\nsigning=ad-hoc\nversion=0.0.0-dry-run' \
-  EVENT=workflow_dispatch REF=refs/heads/some-branch RUN_NUMBER=1 VERSION=0.0.0-dry-run
+  EVENT=workflow_dispatch REF=refs/heads/some-branch VERSION=0.0.0-dry-run
 expect_plan "main may dry-run with the Developer ID (to test the secrets)" "signing=developer-id" \
-  EVENT=workflow_dispatch REF=refs/heads/main RUN_NUMBER=1 DRY_RUN=true SIGNING=developer-id VERSION=2.2.0
+  EVENT=workflow_dispatch REF=refs/heads/main DRY_RUN=true SIGNING=developer-id VERSION=2.2.0
 expect_plan "a dispatch on a v* tag takes the tag's version" "version=2.3.0" \
-  EVENT=workflow_dispatch REF=refs/tags/v2.3.0 RUN_NUMBER=1 DRY_RUN=false SIGNING=developer-id
-refuse_plan "pull requests never run the release" EVENT=pull_request REF=refs/pull/1/merge RUN_NUMBER=1
-refuse_plan "pull_request_target never runs the release" EVENT=pull_request_target REF=refs/heads/main RUN_NUMBER=1
-refuse_plan "a push to a branch is not a release" EVENT=push REF=refs/heads/main RUN_NUMBER=1
-refuse_plan "a tag that is not v<version> is refused" EVENT=push REF=refs/tags/vnext RUN_NUMBER=1
-refuse_plan "a release version is plain X.Y.Z (the app compares only that)" EVENT=push REF=refs/tags/v2.2.0-preview.2 RUN_NUMBER=1
+  EVENT=workflow_dispatch REF=refs/tags/v2.3.0 DRY_RUN=false SIGNING=developer-id
+refuse_plan "pull requests never run the release" EVENT=pull_request REF=refs/pull/1/merge
+refuse_plan "pull_request_target never runs the release" EVENT=pull_request_target REF=refs/heads/main
+refuse_plan "a push to a branch is not a release" EVENT=push REF=refs/heads/main
+refuse_plan "a tag that is not v<version> is refused" EVENT=push REF=refs/tags/vnext
+refuse_plan "a release version is plain X.Y.Z (the app compares only that)" EVENT=push REF=refs/tags/v2.2.0-preview.2
 refuse_plan "only a v* tag publishes" \
-  EVENT=workflow_dispatch REF=refs/heads/main RUN_NUMBER=1 DRY_RUN=false SIGNING=developer-id VERSION=2.2.0
+  EVENT=workflow_dispatch REF=refs/heads/main DRY_RUN=false SIGNING=developer-id VERSION=2.2.0
 refuse_plan "a release is never ad hoc" \
-  EVENT=workflow_dispatch REF=refs/tags/v2.2.0 RUN_NUMBER=1 DRY_RUN=false SIGNING=ad-hoc
+  EVENT=workflow_dispatch REF=refs/tags/v2.2.0 DRY_RUN=false SIGNING=ad-hoc
 refuse_plan "the Developer ID signs only main and v* tags" \
-  EVENT=workflow_dispatch REF=refs/heads/feature RUN_NUMBER=1 DRY_RUN=true SIGNING=developer-id VERSION=2.2.0
+  EVENT=workflow_dispatch REF=refs/heads/feature DRY_RUN=true SIGNING=developer-id VERSION=2.2.0
 refuse_plan "a stand-in trust root never meets the Developer ID" \
-  EVENT=workflow_dispatch REF=refs/heads/main RUN_NUMBER=1 SIGNING=developer-id STAND_IN_TRUST_ROOT=true VERSION=2.2.0
+  EVENT=workflow_dispatch REF=refs/heads/main SIGNING=developer-id STAND_IN_TRUST_ROOT=true VERSION=2.2.0
 refuse_plan "a tag dispatch cannot override the tag's version" \
-  EVENT=workflow_dispatch REF=refs/tags/v2.2.0 RUN_NUMBER=1 VERSION=9.9.9
+  EVENT=workflow_dispatch REF=refs/tags/v2.2.0 VERSION=9.9.9
 
 # ── sign-app: inside-out, hardened runtime, timestamps, never --deep ───────
 stubs=$test_tmp/stubs

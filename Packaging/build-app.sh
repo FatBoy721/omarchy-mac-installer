@@ -33,8 +33,9 @@ export CARGO_BUILD_JOBS="$build_jobs"
 
 marketing_version="${OMARCHY_APP_VERSION:-2.1.0}"
 # SMJobBless never replaces a helper with a lower build, so a developer build
-# defaults to its UTC build minute (YYMMDDHHMM): each one installs over the
-# helper an earlier one left, without anyone tracking numbers by hand.
+# defaults to its UTC build minute (YYMMDDHHMM), as releases use: the newest
+# build installs over the helper an earlier one left, without anyone tracking
+# numbers by hand.
 if [[ ${OMARCHY_DEVELOPER_BUILD:-0} == "1" ]]; then
   build_number="${OMARCHY_APP_BUILD_NUMBER:-$(date -u +%y%m%d%H%M)}"
 else
