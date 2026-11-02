@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "default_channel": "edge",
+  "default_channel": "rc",
   "channels": {
     "stable": {
       "catalog_url": "https://mac.omarchy.org/v1/catalog-stable.signed.json"

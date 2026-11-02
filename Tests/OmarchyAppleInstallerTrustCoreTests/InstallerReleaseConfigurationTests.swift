@@ -66,9 +66,9 @@
       }
     }
 
-    /// The descriptor this repository ships: edge by default, and every
+    /// The descriptor this repository ships: rc by default, and every
     /// channel's catalog at the configured catalog base.
-    func testTheShippedDescriptorDefaultsToEdgeAtTheCatalogBase() throws {
+    func testTheShippedDescriptorDefaultsToRCAtTheCatalogBase() throws {
       let release = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Release")
@@ -78,7 +78,7 @@
           contentsOf: release.appendingPathComponent("trust-root.ed25519.pub"))
       )
 
-      XCTAssertEqual(configuration.defaultChannel, .edge)
+      XCTAssertEqual(configuration.defaultChannel, .rc)
       for channel in ReleaseChannel.allCases {
         XCTAssertEqual(
           configuration.catalogURL(for: channel).absoluteString,
