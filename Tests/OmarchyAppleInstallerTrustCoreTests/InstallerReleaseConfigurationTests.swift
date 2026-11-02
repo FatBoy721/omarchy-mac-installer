@@ -66,7 +66,7 @@
       }
     }
 
-    /// The descriptor this repository ships: edge by default, and every
+    /// The descriptor this repository ships: rc by default, and every
     /// channel's catalog at the configured catalog base.
     func testTheShippedDescriptorDefaultsToRCAtTheCatalogBase() throws {
       let release = URL(fileURLWithPath: #filePath)
