@@ -71,6 +71,24 @@
           parentFrame: tinyScreen, titleBarHeight: 28, visibleFrame: tinyScreen), 300)
     }
 
+    func testHeadingSaysRemovingWhileRemovalRuns() {
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: false, completed: false),
+        "Remove Omarchy")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: true, completed: false),
+        "Removing Omarchy")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: false, completed: true),
+        "Omarchy removed")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: true, removing: true, completed: false),
+        "Returning free space")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: true, removing: false, completed: false),
+        "Return free space")
+    }
+
     func testBodyTakesItsContentHeightUntilTheFooterReachesTheCap() {
       XCTAssertEqual(RemovalSheetLayout.bodyHeight(content: 300, footer: 200, cap: 756), 300)
       XCTAssertEqual(RemovalSheetLayout.bodyHeight(content: 900, footer: 200, cap: 756), 556)

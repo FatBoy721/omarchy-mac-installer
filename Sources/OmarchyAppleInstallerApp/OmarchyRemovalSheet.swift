@@ -264,8 +264,14 @@ struct OmarchyRemovalSheet: View {
   }
 
   private var heading: String {
-    if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
-    return completed ? "Omarchy removed" : "Remove Omarchy"
+    Self.heading(
+      freeSpace: ticket?.kind == .freeSpace, removing: submitted && busy, completed: completed)
+  }
+
+  nonisolated static func heading(freeSpace: Bool, removing: Bool, completed: Bool) -> String {
+    if completed { return freeSpace ? "Space returned" : "Omarchy removed" }
+    if removing { return freeSpace ? "Returning free space" : "Removing Omarchy" }
+    return freeSpace ? "Return free space" : "Remove Omarchy"
   }
 
   /// - Parameter keepingAccount: true right after the helper was set up with
