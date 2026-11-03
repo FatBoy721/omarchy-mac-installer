@@ -195,7 +195,15 @@
         XCTAssertGreaterThan(size.height, cap - 1)
       }
 
-      func testSheetCapsItselfBelowItsParentWindow() throws {
+      /// Without the plan card the sheet is shorter than any cap, which is at
+      /// least `minimumHeightCap`, so under a real parent it keeps its own
+      /// height. The cap arithmetic is covered by RemovalSheetLayoutTests and
+      /// the scroll test above.
+      func testSheetKeepsItsOwnHeightBelowItsParentWindow() throws {
+        let natural = host(.success, cap: .greatestFiniteMagnitude, showsAccountFields: true)
+        natural.window.close()
+        let height = natural.size.height
+        XCTAssertLessThan(height, RemovalSheetLayout.minimumHeightCap)
         let screen = try XCTUnwrap(NSScreen.main)
         let visible = screen.visibleFrame
         let parent = NSWindow(
@@ -208,8 +216,8 @@
         parent.setFrameTopLeftPoint(CGPoint(x: visible.minX + 40, y: visible.minY + 700))
         parent.orderFront(nil)
         defer { parent.close() }
-        let expected = try XCTUnwrap(RemovalSheetLayout.heightCap(for: parent))
-        XCTAssertLessThan(expected, 700)
+        let cap = try XCTUnwrap(RemovalSheetLayout.heightCap(for: parent))
+        XCTAssertLessThan(cap, 700)
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: .success, heightCap: nil, showsAccountFields: true))
@@ -223,11 +231,11 @@
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
           RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-          if abs(view.fittingSize.height - expected) <= 1 { break }
+          if abs(view.fittingSize.height - height) <= 1 { break }
         }
         XCTAssertIdentical(sheet.sheetParent, parent)
-        XCTAssertLessThanOrEqual(view.fittingSize.height, expected)
-        XCTAssertGreaterThan(view.fittingSize.height, expected - 1)
+        XCTAssertEqual(view.fittingSize.height, height, accuracy: 1)
+        XCTAssertLessThanOrEqual(view.fittingSize.height, cap)
         XCTAssertGreaterThanOrEqual(sheet.frame.minY, visible.minY)
         XCTAssertLessThanOrEqual(sheet.frame.maxY, parent.frame.maxY)
       }
