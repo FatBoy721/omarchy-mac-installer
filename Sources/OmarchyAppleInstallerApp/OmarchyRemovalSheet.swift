@@ -56,7 +56,7 @@ struct OmarchyRemovalSheet: View {
   #if DEBUG
     init(
       previewScenario: RemovalPreviewScenario, heightCap: CGFloat?,
-      showsAccountFields: Bool = false,
+      showsAccountFields: Bool = false, removing: Bool = false,
       onControlFrame: ((String, CGRect) -> Void)? = nil
     ) {
       self.init(
@@ -66,6 +66,8 @@ struct OmarchyRemovalSheet: View {
       _scenario = State(initialValue: previewScenario)
       _ticket = State(initialValue: ticket)
       _message = State(initialValue: message)
+      _submitted = State(initialValue: removing)
+      _busy = State(initialValue: removing)
       fixedHeightCap = heightCap
       preloaded = true
       self.onControlFrame = onControlFrame
@@ -139,7 +141,10 @@ struct OmarchyRemovalSheet: View {
         .font(OmarchyTheme.title)
         .foregroundStyle(OmarchyTheme.accent)
 
-      if reenablingHelper && needsAccountFirst && !busy {
+      // While the sheet is busy, only the spinner line says what's happening.
+      if busy {
+        EmptyView()
+      } else if reenablingHelper && needsAccountFirst {
         // The same caution callout as the authorize sheet, so a switched-off
         // helper is not mistaken for the ordinary first-time account step.
         HStack(alignment: .top, spacing: 8) {
@@ -192,6 +197,7 @@ struct OmarchyRemovalSheet: View {
             .font(OmarchyTheme.detail)
         }
         .foregroundStyle(OmarchyTheme.secondaryText)
+        .reportsFrame("removal-progress", to: onControlFrame)
       }
       HStack(spacing: 12) {
         Spacer()
@@ -239,7 +245,7 @@ struct OmarchyRemovalSheet: View {
 
   private var progressText: String {
     if submitted { return "Keep your Mac on until removal finishes." }
-    return needsAccountFirst ? "Setting up the removal service…" : "Reading the disk layout…"
+    return needsAccountFirst ? "Setting up the removal service…" : "Looking for Omarchy…"
   }
 
   private var accountFields: some View {
@@ -372,10 +378,6 @@ struct OmarchyRemovalSheet: View {
     password = ""
     busy = true
     submitted = true
-    message =
-      ticket.startupDisk == nil
-      ? "Removing Omarchy, then returning its space to macOS…"
-      : "Setting macOS as the startup disk, removing Omarchy, then returning its space to macOS…"
     defer { busy = false }
     #if DEBUG
       if isSimulation {

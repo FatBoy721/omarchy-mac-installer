@@ -91,7 +91,8 @@
       }
 
       private func host(
-        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false
+        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false,
+        removing: Bool = false
       ) -> Hosted {
         let hosted = Hosted()
         hosted.window.isReleasedWhenClosed = false
@@ -99,6 +100,7 @@
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: scenario, heightCap: cap, showsAccountFields: showsAccountFields,
+            removing: removing,
             onControlFrame: { [weak hosted] id, frame in hosted?.controls[id] = frame }
           )
           .environment(\.colorScheme, .light))
@@ -169,6 +171,17 @@
                 showsAccountFields: showsAccountFields)
             }
           }
+        }
+      }
+
+      func testRemovingShowsOnlyTheHeadingAndTheSpinnerLine() throws {
+        for scenario in [RemovalPreviewScenario.success, .startupDisk, .freeSpace] {
+          let hosted = host(scenario, cap: 756, showsAccountFields: true, removing: true)
+          defer { hosted.window.close() }
+          XCTAssertNil(hosted.controls["removal-message"], "\(scenario)")
+          let spinner = try XCTUnwrap(hosted.controls["removal-progress"], "\(scenario)")
+          XCTAssertFalse(spinner.isEmpty, "\(scenario)")
+          try savePreview(hosted, name: "\(scenario)-removing")
         }
       }
 
