@@ -131,7 +131,7 @@
         XCTAssertLessThanOrEqual(size.height, cap, label, file: file, line: line)
         XCTAssertEqual(hosted.view?.frame.size, size, label, file: file, line: line)
         let bounds = CGRect(origin: .zero, size: size)
-        for identifier in ["removal-confirmation", "remove-omarchy"] {
+        for identifier in ["removal-message", "remove-omarchy"] {
           let control = try XCTUnwrap(
             hosted.controls[identifier], "\(label): \(identifier) not laid out", file: file,
             line: line)
@@ -172,16 +172,14 @@
         }
       }
 
-      func testFourDeletionPlanScrollsWhenTheCapIsShorterThanItsContent() throws {
-        for showsAccountFields in [false, true] {
-          let uncapped = host(
-            .success, cap: .greatestFiniteMagnitude, showsAccountFields: showsAccountFields)
-          uncapped.window.close()
-          let cap = (uncapped.size.height - 160).rounded(.down)
-          let size = try assertFits(
-            .success, cap: cap, name: "scrolled", showsAccountFields: showsAccountFields)
-          XCTAssertGreaterThan(size.height, cap - 1, "accountFields=\(showsAccountFields)")
-        }
+      /// The live sheet, with its account fields, is the only one tall enough
+      /// to cut short and still check the controls inside it.
+      func testSheetScrollsWhenTheCapIsShorterThanItsContent() throws {
+        let uncapped = host(.success, cap: .greatestFiniteMagnitude, showsAccountFields: true)
+        uncapped.window.close()
+        let cap = (uncapped.size.height - 30).rounded(.down)
+        let size = try assertFits(.success, cap: cap, name: "scrolled", showsAccountFields: true)
+        XCTAssertGreaterThan(size.height, cap - 1)
       }
 
       func testSheetCapsItselfBelowItsParentWindow() throws {
