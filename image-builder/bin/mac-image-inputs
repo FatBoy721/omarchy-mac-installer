@@ -19,6 +19,8 @@ DEFAULT_ASAHI_ALARM_SERVER=https://github.com/asahi-alarm/asahi-alarm/releases/d
 DEFAULT_ALARM_SERVER='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
 # The rc lane builds from the Arch Linux ARM snapshot the rc mirror list serves.
 RC_ALARM_SERVER='https://arm-rc-mirror.omarchy.org/$arch/$repo'
+# The stable lane builds from the snapshot the stable mirror list serves.
+STABLE_ALARM_SERVER='https://arm-stable-mirror.omarchy.org/$arch/$repo'
 
 usage() {
   cat <<'USAGE'
@@ -34,13 +36,14 @@ Usage: bin/mac-image-inputs resolve FILE (--candidates DIR | --channel-set) [--c
               database and the root filesystem now, and write the record to
               FILE. --cache keeps the databases and root filesystem for builds.
               --channel names the lane (default edge); a lane the trust
-              policy does not enable (stable) is refused before any download.
-              rc needs --release-tag, the omacom/omarchy tag it builds
-              (v4.5.0-rc2), and takes --mac-revision (1 to 999, default 1);
-              edge takes neither. The Omarchy server defaults to the lane's
-              mirror on pkgs.omarchy.org, the Arch Linux ARM server to the rc
-              mirror for rc; an rc record names no edge server. URLs may use
-              pacman's $arch and $repo.
+              policy does not enable is refused before any download.
+              rc and stable need --release-tag, the omacom/omarchy tag they
+              build (v4.5.0-rc2, v4.5.0), and take --mac-revision (1 to 999,
+              default 1); edge takes neither. The Omarchy server defaults to
+              the lane's mirror on pkgs.omarchy.org, the Arch Linux ARM server
+              to the lane's mirror for rc and stable; an rc or stable record
+              names no server of another lane, nor rolling Arch Linux ARM.
+              URLs may use pacman's $arch and $repo.
               --channel-set builds from the channel itself (a public image):
               the set is what the pinned omarchy.db names for the trust
               policy's channel runtime and boot packages, each archive checked
@@ -121,13 +124,20 @@ from_edge() {
   [[ $1 == */edge/* || $1 == https://arm-mirror.omarchy.org/* ]]
 }
 
-# An rc image's servers are its lane's: nothing it installs or names comes from edge.
+# An rc or stable image's servers are its lane's: nothing it installs or names
+# comes from edge or the other release lane, and its Arch Linux ARM is a frozen
+# snapshot rather than the rolling upstream.
 check_release_servers() {
-  local server
+  local server other kind
   [[ $omarchy_channel != edge ]] || return 0
+  if [[ $omarchy_channel == rc ]]; then other=stable kind="an rc image"; else other=rc kind="a stable image"; fi
   for server in "$omarchy_server" "$asahi_alarm_server" "$alarm_server"; do
-    ! from_edge "$server" || fail "an $omarchy_channel image takes nothing from edge: $server"
+    ! from_edge "$server" || fail "$kind takes nothing from edge: $server"
+    [[ $server != */$other/* && $server != https://arm-$other-mirror.omarchy.org/* ]] ||
+      fail "$kind takes nothing from $other: $server"
   done
+  [[ $alarm_server == https://arm-$omarchy_channel-mirror.omarchy.org/* ]] ||
+    fail "$kind takes Arch Linux ARM from its frozen snapshot, not $alarm_server"
 }
 
 valid_server() {
@@ -391,6 +401,8 @@ case $mode in
     [[ -n $omarchy_server ]] || printf -v omarchy_server "$DEFAULT_OMARCHY_SERVER" "$(sed -n 's/^OMARCHY_MIRROR=//p' <<<"$contract")"
     if [[ -z $alarm_server && $channel == rc ]]; then
       alarm_server=$RC_ALARM_SERVER
+    elif [[ -z $alarm_server && $channel == stable ]]; then
+      alarm_server=$STABLE_ALARM_SERVER
     fi
     alarm_server=${alarm_server:-$DEFAULT_ALARM_SERVER}
     for value in "$omarchy_server" "$asahi_alarm_server" "$alarm_server"; do

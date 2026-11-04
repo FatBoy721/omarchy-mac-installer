@@ -3,7 +3,7 @@ name: Mac catalog sign
 # The one place the Omacom catalog key is used. Both catalog writers call it
 # after building an unsigned catalog in their own no-secret job:
 #
-#   mac-catalog.yml  a new edge or rc catalog for an image of that lane with
+#   mac-catalog.yml  a new edge, rc or stable catalog for an image of that lane with
 #                    passing VM evidence (gate: evidence)
 #   mac-promote.yml  an rc or stable catalog re-signing a published catalog's
 #                    exact pins (gate: promotion; parked)
@@ -37,7 +37,7 @@ on:
         type: string
         required: true
       gate:
-        description: evidence (a new edge or rc catalog) or promotion (a promoted rc or stable catalog)
+        description: evidence (a new edge, rc or stable catalog) or promotion (a promoted rc or stable catalog)
         type: string
         required: true
       source-sha256:
@@ -108,11 +108,11 @@ jobs:
           [[ $(<"$inputs/channel") == "$CHANNEL" ]]
           catalog=$inputs/catalog-$CHANNEL.json
           [[ $(sha256sum "$catalog" | cut -d' ' -f1) == "$EXPECTED" ]]
-          # Each gate signs only its own channels: evidence writes edge or rc
+          # Each gate signs only its own channels: evidence writes edge, rc or stable
           # (from an image of that lane), promotion writes rc or stable (both
           # commands refuse others too).
           case "$GATE:$CHANNEL" in
-            evidence:edge | evidence:rc)
+            evidence:edge | evidence:rc | evidence:stable)
               python3 scripts/catalog_release.py check-evidence --catalog "$catalog" --evidence "$inputs/evidence.json"
               ;;
             promotion:rc | promotion:stable)

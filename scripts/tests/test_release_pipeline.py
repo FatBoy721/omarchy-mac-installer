@@ -217,8 +217,12 @@ class Lanes(unittest.TestCase):
         self.assertEqual(self.plan("v4.5.0-rc2"), (0, "lane=rc\nrelease-tag=v4.5.0-rc2\nmac-revision=1\n"), self.output)
         self.assertEqual(self.plan("v4.5.0-rc2", "3")[1], "lane=rc\nrelease-tag=v4.5.0-rc2\nmac-revision=3\n")
 
+    def test_a_final_tag_makes_a_stable_run_at_revision_one_by_default(self):
+        self.assertEqual(self.plan("v4.5.0"), (0, "lane=stable\nrelease-tag=v4.5.0\nmac-revision=1\n"), self.output)
+        self.assertEqual(self.plan("v4.5.0", "2")[1], "lane=stable\nrelease-tag=v4.5.0\nmac-revision=2\n")
+
     def test_a_malformed_tag_or_revision_never_reaches_the_build(self):
-        for tag, revision in (("v4.5.0", ""), ("4.5.0-rc2", ""), ("v4.5.0-rc2;id", ""), ("v4.5.0-rc0", ""),
+        for tag, revision in (("v4.5", ""), ("4.5.0", ""), ("v04.5.0", ""), ("v4.5.0;id", ""), ("v4.5.0", "0"), ("4.5.0-rc2", ""), ("v4.5.0-rc2;id", ""), ("v4.5.0-rc0", ""),
                               ("v4.5.0-rc2", "0"), ("v4.5.0-rc2", "1a"), ("", "2")):
             with self.subTest(tag=tag, revision=revision):
                 self.assertEqual(self.plan(tag, revision), (1, ""))
@@ -249,11 +253,10 @@ class Lanes(unittest.TestCase):
         self.assertIn('--channel "$LANE"', build)
         self.assertIn('${RELEASE_TAG:+--release-tag "$RELEASE_TAG"}', build)
 
-    def test_the_signer_takes_evidence_for_edge_and_rc_alone(self):
+    def test_the_signer_takes_evidence_for_every_lane(self):
         sign = text(WORKFLOWS / "mac-catalog-sign.yml")
-        self.assertIn("evidence:edge | evidence:rc)", sign)
-        self.assertNotIn("evidence:stable", sign)
-        self.assertIn("options: [edge, rc]", text(WORKFLOWS / "mac-catalog.yml"))
+        self.assertIn("evidence:edge | evidence:rc | evidence:stable)", sign)
+        self.assertIn("options: [edge, rc, stable]", text(WORKFLOWS / "mac-catalog.yml"))
 
 
 class Secrets(unittest.TestCase):
@@ -900,9 +903,15 @@ class NativeRecovery(unittest.TestCase):
         call = (Path(self.tmp.name) / "calls").read_text()
         self.assertTrue(call.startswith(f"mac-image-inputs resolve {self.work}/inputs --channel-set --channel rc "
                                         "--release-tag v4.5.0-rc2 --mac-revision 2 "), call)
-        result = self.run_step("Resolve the lane's inputs", digest, cwd=checkout, lane=("stable", "v4.5.0", ""))
+        (Path(self.tmp.name) / "calls").unlink()
+        result = self.run_step("Resolve the lane's inputs", digest, cwd=checkout, lane=("stable", "v4.5.0", "1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        call = (Path(self.tmp.name) / "calls").read_text()
+        self.assertTrue(call.startswith(f"mac-image-inputs resolve {self.work}/inputs --channel-set --channel stable "
+                                        "--release-tag v4.5.0 --mac-revision 1 "), call)
+        result = self.run_step("Resolve the lane's inputs", digest, cwd=checkout, lane=("beta", "v4.5.0", ""))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("the lane must be edge or rc", result.stdout + result.stderr)
+        self.assertIn("the lane must be edge, rc or stable", result.stdout + result.stderr)
 
     def test_inputs_pinning_another_app_stop_the_build(self):
         checkout = self.stub_tools("b" * 64)
