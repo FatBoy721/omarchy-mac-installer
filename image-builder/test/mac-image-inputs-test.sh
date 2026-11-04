@@ -152,7 +152,7 @@ sed -e 's/^omarchy_channel=edge$/omarchy_channel=rc/' -e 's|pkgs.omarchy.org/edg
 pass "a canonical rc record checks"
 refuse "an rc record without its tag" sed '/^release_tag=/d' "$work/rc-inputs"
 refuse "an rc record without its revision" sed '/^mac_revision=/d' "$work/rc-inputs"
-refuse "an rc record whose tag is not an rc tag" sed 's/^release_tag=.*/release_tag=v4.5.0/' "$work/rc-inputs"
+refuse "an rc record whose tag is not an rc tag" sed 's/^release_tag=.*/release_tag=v4.5-rc2/' "$work/rc-inputs"
 refuse "an rc record with revision 0" sed 's/^mac_revision=.*/mac_revision=0/' "$work/rc-inputs"
 refuse "an rc record with a padded revision" sed 's/^mac_revision=.*/mac_revision=01/' "$work/rc-inputs"
 refuse "an rc record with its tag out of place" awk '/^release_tag=/ { held = $0; next } { print } /^alarm_rootfs/ { print held }' "$work/rc-inputs"
