@@ -134,6 +134,14 @@ resolve_refuses "a stable build from the rc ALARM mirror" "a stable image takes 
   --release-tag v4.5.0 --alarm-server 'https://arm-rc-mirror.omarchy.org/$arch/$repo'
 resolve_refuses "a stable build from rolling ALARM" "takes Arch Linux ARM from its frozen snapshot" --channel stable \
   --release-tag v4.5.0 --alarm-server 'https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
+resolve_refuses "a stable build from an equivalent rolling ALARM URL" "takes Arch Linux ARM from its frozen snapshot" --channel stable \
+  --release-tag v4.5.0 --alarm-server 'https://ca.us.mirror.archlinuxarm.org/aarch64/$repo'
+resolve_refuses "an rc build from the stable server" "an rc image takes nothing from stable" --channel rc \
+  --release-tag v4.5.0-rc2 --omarchy-server 'https://pkgs.omarchy.org/stable/$arch'
+resolve_refuses "an rc build from the stable ALARM mirror" "an rc image takes nothing from stable" --channel rc \
+  --release-tag v4.5.0-rc2 --alarm-server 'https://arm-stable-mirror.omarchy.org/$arch/$repo'
+resolve_refuses "an rc build from rolling ALARM" "takes Arch Linux ARM from its frozen snapshot" --channel rc \
+  --release-tag v4.5.0-rc2 --alarm-server 'https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
 pass "resolve takes a release tag and revision for the rc and stable lanes alone, and nothing from another lane"
 
 # An rc record names its tag and revision after its channel database.

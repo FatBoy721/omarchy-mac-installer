@@ -136,7 +136,7 @@ check_release_servers() {
     [[ $server != */$other/* && $server != https://arm-$other-mirror.omarchy.org/* ]] ||
       fail "$kind takes nothing from $other: $server"
   done
-  [[ $alarm_server != "$DEFAULT_ALARM_SERVER" ]] ||
+  [[ $alarm_server == https://arm-$omarchy_channel-mirror.omarchy.org/* ]] ||
     fail "$kind takes Arch Linux ARM from its frozen snapshot, not $alarm_server"
 }
 
