@@ -110,9 +110,11 @@ IMAGE_NAME = re.compile(r"^omarchy-mac-([a-z]+)-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-
 _RELEASE_VERSION = r"^omarchy-mac-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 _RELEASE_SUFFIX = r"-r[1-9][0-9]{0,2}-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{12}$"
 RELEASE_IMAGE_NAMES = {
-    "rc": re.compile(_RELEASE_VERSION + r"-rc[1-9][0-9]*" + _RELEASE_SUFFIX),
+    # A bare -rc is a final tag built on the rc lane (channel_set.release_image_label).
+    "rc": re.compile(_RELEASE_VERSION + r"-rc(?:[1-9][0-9]*)?" + _RELEASE_SUFFIX),
     "stable": re.compile(_RELEASE_VERSION + _RELEASE_SUFFIX),
 }
+FINAL_TAG_ON_RC = re.compile(_RELEASE_VERSION + r"-rc" + _RELEASE_SUFFIX)
 FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
 
 # PKCS#8 and SubjectPublicKeyInfo prefixes of an Ed25519 key (RFC 8410).
@@ -320,7 +322,7 @@ def check_image_name(name: object, channel: str, payload_sha256: str | None = No
     An rc or stable catalog takes only an image of that lane, named from its release tag."""
     if channel in RELEASE_CHANNELS:
         if not isinstance(name, str) or RELEASE_IMAGE_NAMES[channel].fullmatch(name) is None:
-            shape = "X.Y.Z-rcN" if channel == "rc" else "X.Y.Z"
+            shape = "X.Y.Z-rc[N]" if channel == "rc" else "X.Y.Z"
             raise Refusal(f"image must be omarchy-mac-<{shape}>-r<revision>-<YYYY.MM.DD>-<12 hex package set id>,"
                           f" not built for the {channel} lane: {name}")
         return name
@@ -577,11 +579,20 @@ def from_catalog(field: str, artifact: object, digest: object, allow_parts: bool
     return document
 
 
+def check_promotion_source(source: dict) -> None:
+    """An image of a final tag built on the rc lane stays on rc: stable builds its own."""
+    for model in source.get("models", []):
+        image = model.get("evidenceRevision")
+        if isinstance(image, str) and FINAL_TAG_ON_RC.fullmatch(image):
+            raise Refusal(f"{image} is a final tag built on the rc lane: it is never promoted")
+
+
 def promote_catalog(source: dict, now: datetime.datetime) -> dict:
     """SOURCE with only its sequence and issue time replaced: every model,
     pin, digest and the installer block keep exactly the source's values."""
     if source.get("schemaVersion") != SCHEMA_VERSION:
         raise Refusal("the source catalog is not a schema 4 catalog")
+    check_promotion_source(source)
     promotion_artifacts(source)
     errors = supported_models.catalog_errors(source)
     if errors:
@@ -1270,6 +1281,7 @@ def command_check_promotion(arguments) -> None:
         source_sha256 = hashlib.sha256(decode_envelope(envelope)[0]).hexdigest()
         if source_sha256 != arguments.source_sha256:
             raise Refusal(f"the source catalog is sha256 {source_sha256}, not the pinned {arguments.source_sha256}")
+    check_promotion_source(source)
     promoted = load_json(arguments.catalog, "catalog")
     check_same_pins(source, promoted)
     promotion_artifacts(promoted)

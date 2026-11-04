@@ -198,13 +198,13 @@ class Lanes(unittest.TestCase):
     """A run without a release tag is an edge run, as the edge trigger starts it; a release tag makes
     an rc run, which builds the rc image for that tag and publishes to catalog-rc after acceptance."""
 
-    def plan(self, tag: str = "", revision: str = "", ref: str = "refs/heads/main") -> tuple[int, str]:
+    def plan(self, tag: str = "", revision: str = "", ref: str = "refs/heads/main", final_on_rc: str = "false") -> tuple[int, str]:
         directory = Path(tempfile.mkdtemp(prefix="omarchy-pipeline-plan-"))
         self.addCleanup(shutil.rmtree, directory)
         output = directory / "output"
         output.write_text("")
         env = {"PATH": os.environ["PATH"], "EVENT": "workflow_dispatch", "GITHUB_REF": ref, "DRY_RUN": "true",
-               "RELEASE_TAG": tag, "MAC_REVISION": revision, "GITHUB_OUTPUT": str(output)}
+               "RELEASE_TAG": tag, "MAC_REVISION": revision, "FINAL_TAG_ON_RC": final_on_rc, "GITHUB_OUTPUT": str(output)}
         result = subprocess.run(["bash", "--noprofile", "--norc", "-c", step_script(PIPELINE, "Refuse a run off main")],
                                 cwd=ROOT, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True)
         self.output = result.stdout + result.stderr
@@ -220,6 +220,13 @@ class Lanes(unittest.TestCase):
     def test_a_final_tag_makes_a_stable_run_at_revision_one_by_default(self):
         self.assertEqual(self.plan("v4.5.0"), (0, "lane=stable\nrelease-tag=v4.5.0\nmac-revision=1\n"), self.output)
         self.assertEqual(self.plan("v4.5.0", "2")[1], "lane=stable\nrelease-tag=v4.5.0\nmac-revision=2\n")
+
+    def test_a_final_tag_goes_to_rc_only_when_the_run_asks(self):
+        self.assertEqual(self.plan("v4.5.0", final_on_rc="true"), (0, "lane=rc\nrelease-tag=v4.5.0\nmac-revision=1\n"), self.output)
+        self.assertEqual(self.plan("v4.5.0", final_on_rc="false")[1], "lane=stable\nrelease-tag=v4.5.0\nmac-revision=1\n")
+        for tag in ("", "v4.5.0-rc3", "v4.5"):
+            with self.subTest(tag=tag):
+                self.assertEqual(self.plan(tag, final_on_rc="true"), (1, ""))
 
     def test_a_malformed_tag_or_revision_never_reaches_the_build(self):
         for tag, revision in (("v4.5", ""), ("4.5.0", ""), ("v04.5.0", ""), ("v4.5.0;id", ""), ("v4.5.0", "0"), ("4.5.0-rc2", ""), ("v4.5.0-rc2;id", ""), ("v4.5.0-rc0", ""),

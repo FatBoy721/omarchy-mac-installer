@@ -77,6 +77,10 @@ on:
         description: The rc or stable image's Mac revision under its tag (1 to 999); empty for 1
         type: string
         default: ''
+      final-tag-on-rc:
+        description: Build a final tag (v4.5.0) from the rc channel for catalog-rc, before rc is promoted to stable
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -109,6 +113,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           MAC_REVISION: ${{ inputs.mac-revision }}
+          FINAL_TAG_ON_RC: ${{ inputs.final-tag-on-rc }}
         run: |
           set -euo pipefail
           if [[ $EVENT == pull_request || $EVENT == pull_request_target ]]; then
@@ -125,11 +130,16 @@ jobs:
           # A release tag makes an rc or stable run; the builder checks the tag
           # again against that channel's runtime (builder/channel_set.py).
           lane=edge
+          if [[ ${FINAL_TAG_ON_RC:-} == true && ! $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$ ]]; then
+            echo "::error::final-tag-on-rc takes a final tag like v4.5.0"
+            exit 1
+          fi
           if [[ -n $RELEASE_TAG ]]; then
             if [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})-rc[1-9][0-9]{0,3}$ ]]; then
               lane=rc
             elif [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$ ]]; then
               lane=stable
+              [[ ${FINAL_TAG_ON_RC:-} != true ]] || lane=rc
             else
               echo "::error::the release tag must be an rc tag like v4.5.0-rc2 or a final tag like v4.5.0"
               exit 1

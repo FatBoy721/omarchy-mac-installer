@@ -73,6 +73,7 @@ RC_IMAGE = "omarchy-mac-4.5.0-rc2-r1-2026.10.28-0123456789ab"
 # The zips mac-image.yml stages: each lane's, named for the date its inputs were resolved.
 RC_ZIP = "omarchy-2026.10.28-aarch64-apple-silicon-mac-rc-os-package.zip"
 STABLE_IMAGE = "omarchy-mac-4.5.0-r1-2026.10.28-0123456789ab"
+FINAL_ON_RC_IMAGE = "omarchy-mac-4.5.0-rc-r1-2026.10.28-0123456789ab"
 STABLE_ZIP = "omarchy-2026.10.28-aarch64-apple-silicon-mac-stable-os-package.zip"
 EDGE_ZIP = "omarchy-2026.10.28-aarch64-apple-silicon-mac-edge-os-package.zip"
 ENGINE = b"engine-tarball" * 30
@@ -383,6 +384,17 @@ class CatalogReleaseTests(ReleaseTestCase):
                 release.check_image_name(name, "stable")
         with self.assertRaisesRegex(release.Refusal, "not built for the rc lane"):
             release.check_image_name(STABLE_IMAGE, "rc")
+
+    def test_a_final_tag_built_on_rc_goes_to_catalog_rc_and_never_to_stable(self) -> None:
+        self.assertEqual(release.check_image_name(FINAL_ON_RC_IMAGE, "rc", sha(PAYLOAD)), FINAL_ON_RC_IMAGE)
+        with self.assertRaisesRegex(release.Refusal, "not built for the stable lane"):
+            release.check_image_name(FINAL_ON_RC_IMAGE, "stable")
+        with self.assertRaisesRegex(release.Refusal, "never promoted"):
+            release.check_promotion_source({"models": [{"evidenceRevision": FINAL_ON_RC_IMAGE}]})
+        release.check_promotion_source({"models": [{"evidenceRevision": RC_IMAGE}, {"evidenceRevision": STABLE_IMAGE}]})
+        payload, metadata, evidence = self.stable_inputs(recorded=FINAL_ON_RC_IMAGE, zip_name=RC_ZIP)
+        with self.assertRaisesRegex(release.Refusal, "not built for the stable lane"):
+            self.build_stable(payload, metadata, evidence, image=FINAL_ON_RC_IMAGE)
 
     def test_a_catalog_stable_entry_takes_the_stable_image_that_passed_acceptance(self) -> None:
         catalog = self.build_stable(*self.stable_inputs())

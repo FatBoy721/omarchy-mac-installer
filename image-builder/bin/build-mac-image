@@ -953,15 +953,17 @@ write_build_identity() {
 # carries none. The payload's digest and what only an install knows (the
 # catalog sequence, the app and engine versions) are the installer's to add.
 write_install_receipt() {
-  local tag revision release_lane contract date receipt=$target/var/lib/omarchy/install-receipt
+  local tag label revision release_lane contract date receipt=$target/var/lib/omarchy/install-receipt
   tag=$(field release_tag) revision=$(field mac_revision) release_lane=$(field omarchy_channel)
   [[ -n $tag ]] || return 0
   require_build_identity
   contract=$(python3 "$ROOT/builder/channel_set.py" lane --lane "$release_lane" --release-tag "$tag") ||
     fail "the inputs name no $release_lane release for the install receipt"
   date=$(field resolved_at | cut -c1-10 | tr - .)
+  label=$(python3 "$ROOT/builder/channel_set.py" label --lane "$release_lane" --release-tag "$tag") ||
+    fail "the inputs name no $release_lane release for the install receipt"
   {
-    printf 'format=1\nimage=omarchy-mac-%s-r%s-%s-%s\n' "${tag#v}" "$revision" "$date" "${package_set_digest:0:12}"
+    printf 'format=1\nimage=omarchy-mac-%s-r%s-%s-%s\n' "$label" "$revision" "$date" "${package_set_digest:0:12}"
     printf 'release_tag=%s\nmac_revision=%s\nlane=%s\ncatalog_channel=%s\n' "$tag" "$revision" "$release_lane" "$release_lane"
     awk -F= '{ printf "omarchy_%s=%s\n", tolower(substr($1, 9)), substr($0, index($0, "=") + 1) }' <<<"$contract"
     printf 'package_set_sha256=%s\nbuilt=%s\n' "$package_set_digest" "$built"

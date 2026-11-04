@@ -1148,6 +1148,13 @@ class StableChannelImageInspectionTest(unittest.TestCase):
                          ("v4.5.0", "stable", "stable", "v4.5.0"))
         self.assertEqual(receipt["image"], f"omarchy-mac-4.5.0-r1-2026.09.28-{fixtures.PACKAGE_SET_SHA256[:12]}")
 
+    def test_a_receipt_with_an_rc_lane_name_is_refused_on_the_stable_lane(self):
+        path = self.root / "var/lib/omarchy/install-receipt"
+        path.write_text(path.read_text().replace("image=omarchy-mac-4.5.0-r1-", "image=omarchy-mac-4.5.0-rc-r1-"))
+        report = self.inspect()
+        self.assertEqual(report["result"], "failed")
+        self.assertIn("names another image", report["checks"]["install-receipt"]["detail"])
+
     def test_another_lanes_or_rolling_mirror_is_refused(self):
         for server in ("https://arm-rc-mirror.omarchy.org/$arch/$repo", "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"):
             with self.subTest(server):
@@ -1236,7 +1243,8 @@ class RcChannelImageInspectionTest(unittest.TestCase):
     def test_the_receipt_must_name_this_lane_its_contract_and_its_build(self):
         for changes, pattern in (({"lane": "edge"}, "is not for the rc lane"),
                                  ({"catalog_channel": "stable"}, "is not for the rc lane"),
-                                 ({"release_tag": "v4.5.0"}, "v4.5.0 is not an rc release tag"),
+                                 ({"release_tag": "v4.5.0-rc3"}, "does not name the rc lane's install contract"),
+                                 ({"release_tag": "v4.5"}, "v4.5 is not an rc release tag"),
                                  ({"omarchy_runtime_package": "omarchy-dev"}, "does not name the rc lane's install contract"),
                                  ({"omarchy_image_ref": "rc"}, "does not name the rc lane's install contract"),
                                  ({"mac_revision": "0"}, "names no Mac revision"),
@@ -1250,6 +1258,13 @@ class RcChannelImageInspectionTest(unittest.TestCase):
         self.receipt()
         fixtures.write(self.root, "var/lib/omarchy/install-receipt", fixtures.install_receipt() + "extra=1\n")
         self.assertFails("install-receipt", "is not format 1")
+
+    def test_a_final_tag_on_the_rc_lane_names_its_image_with_a_bare_rc(self):
+        final = {"release_tag": "v4.5.0", "omarchy_image_ref": "v4.5.0"}
+        self.receipt(**final, image="omarchy-mac-4.5.0-rc-r1-2026.09.28-" + fixtures.PACKAGE_SET_SHA256[:12])
+        self.assertEqual(self.inspect()["checks"]["install-receipt"]["result"], "passed")
+        self.receipt(**final, image="omarchy-mac-4.5.0-r1-2026.09.28-" + fixtures.PACKAGE_SET_SHA256[:12])
+        self.assertFails("install-receipt", "names another image")
 
     def test_the_factory_keeps_the_images_receipt(self):
         fixtures.write(self.factory, "var/lib/omarchy/install-receipt", fixtures.install_receipt(revision="2"))
