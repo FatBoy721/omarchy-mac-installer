@@ -393,6 +393,14 @@ class RcBuildDirectoryTest(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertEqual((result.returncode, result.stdout), (0, f"{expected}\n"))
 
+    def test_a_final_tag_is_named_apart_on_the_rc_lane(self):
+        sha = "0123456789ab" + "0" * 52
+        rc = check.release_image_name("rc", "v4.5.0", "1", "2026.11.04", sha)
+        self.assertEqual(rc, "omarchy-mac-4.5.0-rc-r1-2026.11.04-0123456789ab")
+        self.assertRegex(rc, check.RELEASE_IMAGE_NAME)
+        self.assertEqual(check.release_image_name("stable", "v4.5.0", "1", "2026.11.04", sha),
+                         "omarchy-mac-4.5.0-r1-2026.11.04-0123456789ab")
+
     def test_a_respin_takes_the_next_revision_and_keeps_its_bytes_out_of_the_name(self):
         self.inputs["mac_revision"] = "2"
         self.build(grow={"esp/limine.conf": 1})

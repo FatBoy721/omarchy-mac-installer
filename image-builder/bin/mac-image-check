@@ -821,7 +821,7 @@ def check_receipt_record(lane: str, receipt: object, fields: dict[str, list[str]
                 f"the install receipt's {key} does not match PROVENANCE")
     for key in ("lane", "catalog_channel"):
         require(receipt.get(key) == lane, f"the install receipt's {key} does not match the {lane} lane")
-    expected = release_image_name(receipt["release_tag"], receipt["mac_revision"], payload_date(payload),
+    expected = release_image_name(lane, receipt["release_tag"], receipt["mac_revision"], payload_date(payload),
                                   receipt["package_set_sha256"])
     require(receipt.get("image") == expected, f"the install receipt names the image {receipt.get('image')}, not {expected}")
 
@@ -962,7 +962,7 @@ PACKAGE_SET_ID_LENGTH = 12
 IMAGE_ID_LENGTH = 12
 IMAGE_NAME = re.compile(r"^omarchy-mac-(edge|rc|stable)-\d{4}\.\d{2}\.\d{2}-[0-9a-f]{12}-[0-9a-f]{12}$")
 RELEASE_IMAGE_NAME = re.compile(
-    r"^omarchy-mac-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc[1-9]\d*)?-r[1-9]\d{0,2}"
+    r"^omarchy-mac-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc(?:[1-9]\d*)?)?-r[1-9]\d{0,2}"
     r"-\d{4}\.\d{2}\.\d{2}-[0-9a-f]{12}$")
 
 
@@ -970,9 +970,10 @@ def payload_date(payload: Path) -> str:
     return re.match(r"^omarchy-(\d{4}\.\d{2}\.\d{2})-", payload.name).group(1)
 
 
-def release_image_name(tag: str, revision: str, date: str, package_set_sha256: str) -> str:
+def release_image_name(lane: str, tag: str, revision: str, date: str, package_set_sha256: str) -> str:
     """A release lane's image name: its tag without the v, its Mac revision, its date and package set id."""
-    return f"omarchy-mac-{tag.removeprefix('v')}-r{revision}-{date}-{package_set_sha256[:PACKAGE_SET_ID_LENGTH]}"
+    label = _module("channel_set").release_image_label(lane, tag)
+    return f"omarchy-mac-{label}-r{revision}-{date}-{package_set_sha256[:PACKAGE_SET_ID_LENGTH]}"
 
 
 def image_name(lane: str, directory: Path) -> str:
@@ -985,7 +986,7 @@ def image_name(lane: str, directory: Path) -> str:
     payload = payload_in(directory, lane)
     date = payload_date(payload)
     if lane != "edge":
-        name = release_image_name(once(fields, "release_tag", "IMAGE"), once(fields, "mac_revision", "IMAGE"), date, digest)
+        name = release_image_name(lane, once(fields, "release_tag", "IMAGE"), once(fields, "mac_revision", "IMAGE"), date, digest)
         require(RELEASE_IMAGE_NAME.fullmatch(name) is not None, f"{name} is not a release image name")
         return name
     image_id = file_sha256(payload)[:IMAGE_ID_LENGTH]

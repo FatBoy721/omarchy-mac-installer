@@ -746,7 +746,7 @@ def check_install_receipt(root: Path, lane: str, factory: Path | None, trust: Pa
     target = read_image_target(root / "var/lib/omarchy/image/target", CHANNEL_TARGET_FIELDS)
     for key in IDENTITY_FIELDS:
         require(receipt[key] == target.get(key), f"the install receipt's {key} is not the image target's")
-    image = (rf"omarchy-mac-{re.escape(receipt['release_tag'].removeprefix('v'))}-r{receipt['mac_revision']}"
+    image = (rf"omarchy-mac-{re.escape(channel_set.release_image_label(lane, receipt['release_tag']))}-r{receipt['mac_revision']}"
              rf"-[0-9]{{4}}\.[0-9]{{2}}\.[0-9]{{2}}-{receipt['package_set_sha256'][:12]}")
     require(re.fullmatch(image, receipt["image"]) is not None, f"the install receipt names another image: {receipt['image']}")
     if factory is not None:

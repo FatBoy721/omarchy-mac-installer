@@ -250,6 +250,26 @@ class ChannelSetTest(unittest.TestCase):
             channel_set.snapshot(database, sha256, "rc", self.work / "edge/packages", self.work / "set", self.trust,
                                  release_tag=fixtures.RC_RELEASE)
 
+    def test_the_rc_lane_takes_a_final_tag_only_with_the_final_runtime(self):
+        database, sha256 = fixtures.make_channel(self.work / "rc", self.channel, lane="rc",
+                                                 versions={"omarchy": "4.5.0-1", "omarchy-settings": "4.5.0-1"})
+        summary = channel_set.snapshot(database, sha256, "rc", self.work / "rc/packages", self.work / "set",
+                                       self.trust, release_tag="v4.5.0")
+        self.assertEqual(summary["set"], f"omarchy-rc-{sha256[:12]}")
+        self.assertEqual(channel_set.lane_inputs("rc", "v4.5.0")["OMARCHY_MIRROR"], "rc")
+        self.assertEqual(channel_set.lane_inputs("rc", "v4.5.0")["OMARCHY_IMAGE_REF"], "v4.5.0")
+        rc2, rc2_sha256 = fixtures.make_channel(self.work / "rc2", self.channel, lane="rc")
+        with self.assertRaisesRegex(ValueError, "is not the release v4.5.0"):
+            channel_set.snapshot(rc2, rc2_sha256, "rc", self.work / "rc2/packages", self.work / "set2",
+                                 self.trust, release_tag="v4.5.0")
+
+    def test_only_a_final_tag_on_the_rc_lane_takes_a_bare_rc_label(self):
+        self.assertEqual(channel_set.release_image_label("rc", "v4.5.0"), "4.5.0-rc")
+        self.assertEqual(channel_set.release_image_label("rc", "v4.5.0-rc2"), "4.5.0-rc2")
+        self.assertEqual(channel_set.release_image_label("stable", "v4.5.0"), "4.5.0")
+        with self.assertRaisesRegex(ValueError, "v4.5.0-rc2 is not a stable release tag"):
+            channel_set.release_version("stable", "v4.5.0-rc2")
+
     def test_the_rc_runtime_must_be_its_tags_release(self):
         database, sha256 = self.rc_snapshot()
         with self.assertRaisesRegex(ValueError, "omarchy 4.5.0rc2-1 is not the release v4.5.0-rc3"):
@@ -376,7 +396,6 @@ class ChannelTrustTest(unittest.TestCase):
     def test_release_tags_are_checked_against_their_lane(self):
         for lane, tag, message in (("rc", None, "the rc lane needs a release tag"),
                                    ("edge", "v4.5.0-rc2", "the edge lane takes no release tag"),
-                                   ("rc", "v4.5.0", "v4.5.0 is not an rc release tag"),
                                    ("rc", "4.5.0-rc2", "is not an rc release tag"),
                                    ("rc", "v4.5-rc2", "is not an rc release tag"),
                                    ("rc", "v4.5.0-rc0", "is not an rc release tag"),

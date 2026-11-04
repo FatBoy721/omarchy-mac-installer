@@ -117,7 +117,7 @@ resolve_refuses() {
 }
 resolve_refuses "an rc build without its tag" "the rc lane needs a release tag" --channel rc
 resolve_refuses "an edge build with a tag" "the edge lane takes no release tag" --release-tag v4.5.0-rc2
-resolve_refuses "a malformed tag" "v4.5.0 is not an rc release tag" --channel rc --release-tag v4.5.0
+resolve_refuses "a malformed tag" "v4.5-rc2 is not an rc release tag" --channel rc --release-tag v4.5-rc2
 resolve_refuses "a revision without a tag" "--mac-revision needs --release-tag" --mac-revision 2
 resolve_refuses "revision 0" "the Mac revision must be 1 to 999" --channel rc --release-tag v4.5.0-rc2 --mac-revision 0
 resolve_refuses "an rc build from a candidate set" "the rc lane builds from its channel's set: use --channel-set" \
