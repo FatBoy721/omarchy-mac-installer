@@ -11,7 +11,6 @@ struct OmarchyRemovalSheet: View {
   let simulationScenario: String?
 
   @State private var ticket: OmarchyRemovalTicket?
-  @State private var phrase = ""
   @State private var username = NSUserName()
   @State private var password = ""
   @State private var busy = false
@@ -57,7 +56,7 @@ struct OmarchyRemovalSheet: View {
   #if DEBUG
     init(
       previewScenario: RemovalPreviewScenario, heightCap: CGFloat?,
-      showsAccountFields: Bool = false,
+      showsAccountFields: Bool = false, removing: Bool = false,
       onControlFrame: ((String, CGRect) -> Void)? = nil
     ) {
       self.init(
@@ -67,6 +66,8 @@ struct OmarchyRemovalSheet: View {
       _scenario = State(initialValue: previewScenario)
       _ticket = State(initialValue: ticket)
       _message = State(initialValue: message)
+      _submitted = State(initialValue: removing)
+      _busy = State(initialValue: removing)
       fixedHeightCap = heightCap
       preloaded = true
       self.onControlFrame = onControlFrame
@@ -74,7 +75,7 @@ struct OmarchyRemovalSheet: View {
   #endif
 
   private var canRemove: Bool {
-    ticket != nil && !busy && !submitted && phrase == ticket?.confirmation
+    ticket != nil && !busy && !submitted
       && (isSimulation || (!username.isEmpty && !password.isEmpty))
   }
 
@@ -140,7 +141,10 @@ struct OmarchyRemovalSheet: View {
         .font(OmarchyTheme.title)
         .foregroundStyle(OmarchyTheme.accent)
 
-      if reenablingHelper && needsAccountFirst && !busy {
+      // While the sheet is busy, only the spinner line says what's happening.
+      if busy {
+        EmptyView()
+      } else if reenablingHelper && needsAccountFirst {
         // The same caution callout as the authorize sheet, so a switched-off
         // helper is not mistaken for the ordinary first-time account step.
         HStack(alignment: .top, spacing: 8) {
@@ -157,32 +161,9 @@ struct OmarchyRemovalSheet: View {
           .font(OmarchyTheme.body)
           .fixedSize(horizontal: false, vertical: true)
           .accessibilityIdentifier("removal-message")
+          .reportsFrame("removal-message", to: onControlFrame)
       }
       if let ticket, !submitted {
-        VStack(alignment: .leading, spacing: 10) {
-          if let step = ticket.startupDisk {
-            VStack(alignment: .leading, spacing: 6) {
-              Text("First").foregroundStyle(OmarchyTheme.secondaryText)
-              VStack(alignment: .leading, spacing: 1) {
-                Text(step.title)
-                Text(step.detail)
-                  .font(OmarchyTheme.detail)
-                  .foregroundStyle(OmarchyTheme.secondaryText)
-              }
-              .accessibilityElement(children: .combine)
-              .accessibilityIdentifier("removal-startup-disk")
-            }
-            .font(OmarchyTheme.body)
-          }
-          if !ticket.deletions.isEmpty {
-            planSection("Deleted", items: ticket.deletions)
-          }
-          summaryRow("Space returned to macOS", value: PlainLanguage.bytes(ticket.reclaimBytes))
-          summaryRow("macOS after removal", value: PlainLanguage.bytes(ticket.macOSBytesAfter))
-          planSection("Stays as it is", items: ticket.kept)
-        }
-        .padding(14)
-        .background(OmarchyTheme.card, in: RoundedRectangle(cornerRadius: 8))
         ForEach(ticket.notes, id: \.self) { note in
           Text(note)
             .font(OmarchyTheme.body)
@@ -191,7 +172,7 @@ struct OmarchyRemovalSheet: View {
         Text(
           ticket.kind == .freeSpace
             ? "Your macOS files stay as they are. This can’t be undone."
-            : "Your macOS files stay as they are. Everything in the deleted partitions is lost. Removal can’t be undone."
+            : "Your macOS files stay as they are. Removal can’t be undone."
         )
         .font(OmarchyTheme.body)
         .fixedSize(horizontal: false, vertical: true)
@@ -206,23 +187,8 @@ struct OmarchyRemovalSheet: View {
       if needsAccountFirst && ticket == nil && !isSimulation {
         accountFields
       }
-      if let ticket, !submitted {
-        VStack(alignment: .leading, spacing: 7) {
-          Text("Type this to confirm:")
-            .foregroundStyle(OmarchyTheme.secondaryText)
-          Text(ticket.confirmation)
-            .font(OmarchyTheme.heading)
-            .textSelection(.enabled)
-          TextField("Confirmation phrase", text: $phrase)
-            .textFieldStyle(.roundedBorder)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier("removal-confirmation")
-            .reportsFrame("removal-confirmation", to: onControlFrame)
-        }
-        .font(OmarchyTheme.body)
-        if !isSimulation {
-          accountFields
-        }
+      if ticket != nil, !submitted, !isSimulation {
+        accountFields
       }
       if busy {
         HStack(spacing: 10) {
@@ -231,6 +197,7 @@ struct OmarchyRemovalSheet: View {
             .font(OmarchyTheme.detail)
         }
         .foregroundStyle(OmarchyTheme.secondaryText)
+        .reportsFrame("removal-progress", to: onControlFrame)
       }
       HStack(spacing: 12) {
         Spacer()
@@ -278,7 +245,7 @@ struct OmarchyRemovalSheet: View {
 
   private var progressText: String {
     if submitted { return "Keep your Mac on until removal finishes." }
-    return needsAccountFirst ? "Setting up the removal service…" : "Reading the disk layout…"
+    return needsAccountFirst ? "Setting up the removal service…" : "Looking for Omarchy…"
   }
 
   private var accountFields: some View {
@@ -297,35 +264,14 @@ struct OmarchyRemovalSheet: View {
   }
 
   private var heading: String {
-    if ticket?.kind == .freeSpace { return completed ? "Space returned" : "Return free space" }
-    return completed ? "Omarchy removed" : "Remove Omarchy"
+    Self.heading(
+      freeSpace: ticket?.kind == .freeSpace, removing: submitted && busy, completed: completed)
   }
 
-  private func planSection(_ title: String, items: [OmarchyRemovalItem]) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title).foregroundStyle(OmarchyTheme.secondaryText)
-      ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-        HStack(alignment: .firstTextBaseline) {
-          VStack(alignment: .leading, spacing: 1) {
-            Text(item.title)
-            Text(item.detail)
-              .font(OmarchyTheme.detail)
-              .foregroundStyle(OmarchyTheme.secondaryText)
-          }
-          Spacer()
-          Text(PlainLanguage.bytes(item.bytes)).fontWeight(.medium)
-        }
-      }
-    }
-    .font(OmarchyTheme.body)
-  }
-
-  private func summaryRow(_ label: String, value: String) -> some View {
-    HStack {
-      Text(label).foregroundStyle(OmarchyTheme.secondaryText)
-      Spacer()
-      Text(value).fontWeight(.medium)
-    }.font(OmarchyTheme.body)
+  nonisolated static func heading(freeSpace: Bool, removing: Bool, completed: Bool) -> String {
+    if completed { return freeSpace ? "Space returned" : "Omarchy removed" }
+    if removing { return freeSpace ? "Returning free space" : "Removing Omarchy" }
+    return freeSpace ? "Return free space" : "Remove Omarchy"
   }
 
   /// - Parameter keepingAccount: true right after the helper was set up with
@@ -335,7 +281,6 @@ struct OmarchyRemovalSheet: View {
     busy = true
     defer { busy = false }
     ticket = nil
-    phrase = ""
     if !keepingAccount { password = "" }
     submitted = false
     completed = false
@@ -439,10 +384,6 @@ struct OmarchyRemovalSheet: View {
     password = ""
     busy = true
     submitted = true
-    message =
-      ticket.startupDisk == nil
-      ? "Removing Omarchy, then returning its space to macOS…"
-      : "Setting macOS as the startup disk, removing Omarchy, then returning its space to macOS…"
     defer { busy = false }
     #if DEBUG
       if isSimulation {
@@ -464,7 +405,7 @@ struct OmarchyRemovalSheet: View {
     }
     do {
       let reply = try await client.removal(
-        ticket: ticket, confirmation: phrase, authorization: authorization)
+        ticket: ticket, confirmation: ticket.confirmation, authorization: authorization)
       completed = reply.completed
       if reply.requiresReview { onRequiresReview() }
       message = reply.message

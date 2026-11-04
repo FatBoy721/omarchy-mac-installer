@@ -1,9 +1,6 @@
 # Removing an existing Omarchy installation
 
-Use **Installation → Remove Omarchy…** while no installation or download is
-running. The app displays the capacity returned to macOS and requires the exact
-phrase `delete omarchy installation and data`, plus a macOS administrator account
-and password. There is no Return-key shortcut for the destructive button.
+Use **Installation → Remove Omarchy…** while no installation or download is running. The app says what removal will do and asks for a macOS administrator account and password; that password and the **Remove Omarchy** button are the confirmation. There is no Return-key shortcut for the destructive button. The helper still requires the ticket's phrase (`delete omarchy installation and data`, or `return free space to macos`), which the app sends with the ticket, so older helpers keep working.
 
 Removal uses the signed privileged helper directly. It does not download an OS,
 engine, IPSW or catalog. The helper owns a five-minute, single-use plan; the client
@@ -50,19 +47,13 @@ Install journals are named by the plan's binding digest, and removal restores th
 
 ## Verification and simulator
 
-In a debug `--simulate` run, choose the same menu action and use **Removal test**
-inside the popup. Cases: complete removal, no installation, unfamiliar/partial
-layout, helper unavailable, incorrect password, changed disk, deletion
-interrupted, macOS resize failed and connection lost. The exact phrase is still
-required. Simulation uses no helper, disks, passwords or downloads. A simulation
-blocked by an uncertain outcome has a separate **Reset simulation** action.
+In a debug `--simulate` run, choose the same menu action and use **Removal test** inside the popup. Cases: complete removal, no installation, unfamiliar/partial layout, helper unavailable, incorrect password, changed disk, deletion interrupted, macOS resize failed and connection lost. Simulation uses no helper, disks, passwords or downloads. A simulation blocked by an uncertain outcome has a separate **Reset simulation** action.
 
 `OmarchyRemovalTests` exercises the real planner/executor with in-memory disk
 operations, native plist parsing, every failed command position, journal failure,
 protected identity drift, no-op growth, administrator rejection, exact phrase,
 foreign/replayed tickets, interrupted-helper restart and concurrent install/removal
-rejection. The running UI was checked for disabled near-match confirmation,
-enabled exact confirmation, success and light/dark appearance.
+rejection. The running UI was checked for success and light/dark appearance. The typed confirmation phrase it was also checked for has since been removed from the app.
 
 Physical removal has not been executed for this feature. The M1 Thunderbolt route
 was unavailable during development. Before a physical test, deploy both the new
