@@ -315,7 +315,7 @@
       let probe = FakeProbe(registered: true, version: nil, installsVersion: "27")
       let blesser = FakeBlesser(silent: .blessed, installing: probe)
       let outcome = await provisioner(probe, blesser: blesser, bundled: "28").ensureCurrent(owner)
-      XCTAssertEqual(outcome, .failed("The helper was installed but an older build still answers."))
+      XCTAssertEqual(outcome, .failed("SMJobBless succeeded but another build still answers."))
     }
 
     // MARK: Housekeeping

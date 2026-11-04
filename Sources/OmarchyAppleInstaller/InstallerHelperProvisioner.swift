@@ -377,7 +377,8 @@
         Task.detached { await housekeeping.afterInstall() }
         return outcome
       case .outdated:
-        return .failed("The helper was installed but an older build still answers.")
+        // SMJobBless reports success without replacing a higher build.
+        return .failed("SMJobBless succeeded but another build still answers.")
       case .missing, .disabled, .busy:
         return .failed("The helper was installed but does not answer.")
       }

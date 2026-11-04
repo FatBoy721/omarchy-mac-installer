@@ -78,7 +78,6 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          RUN_NUMBER: ${{ github.run_number }}
           DRY_RUN: ${{ inputs.dry-run }}
           SIGNING: ${{ inputs.signing }}
           VERSION: ${{ inputs.version }}

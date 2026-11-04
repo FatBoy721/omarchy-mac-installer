@@ -2,9 +2,9 @@
 # Decide what one run of the app release workflow does, from its trigger, and
 # refuse every combination that could sign or publish something it should not.
 #
-# Reads EVENT, REF and RUN_NUMBER (github.event_name, github.ref,
-# github.run_number) and, for workflow_dispatch, DRY_RUN (true|false), SIGNING
-# (ad-hoc|developer-id), VERSION and STAND_IN_TRUST_ROOT (true|false). Prints
+# Reads EVENT and REF (github.event_name, github.ref) and, for
+# workflow_dispatch, DRY_RUN (true|false), SIGNING (ad-hoc|developer-id),
+# VERSION and STAND_IN_TRUST_ROOT (true|false). Prints
 # the plan as NAME=value lines for $GITHUB_OUTPUT:
 #
 #   dry_run              true: nothing is published, and a notarized dmg
@@ -13,10 +13,10 @@
 #   signing              ad-hoc (no secrets, no environment) or developer-id
 #                        (the macos-release environment: approval, secrets)
 #   version              the app version; a v<version> tag sets it
-#   build_number         CFBundleVersion: 100 + the run number, so no two runs
-#                        share a build (the app replaces a helper whose build
-#                        differs from its own) and it never falls below the
-#                        hand builds (27, 28)
+#   build_number         CFBundleVersion: the UTC build minute (YYMMDDHHMM),
+#                        the same scale as developer builds. SMJobBless never
+#                        replaces a helper with a lower build, so a release
+#                        has to outrank every developer build made before it
 #   stand_in_trust_root  true: a random key replaces the catalog trust root
 #                        (dry runs only; proves the pipeline before the
 #                        Omacom catalog key lands)
@@ -31,8 +31,7 @@ fail() {
   exit 1
 }
 
-event=${EVENT:?} ref=${REF:?} run_number=${RUN_NUMBER:?}
-[[ $run_number =~ ^[1-9][0-9]*$ ]] || fail "RUN_NUMBER is not a run number"
+event=${EVENT:?} ref=${REF:?}
 version_pattern='^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$'
 tag_version=""
 if [[ $ref == refs/tags/v* ]]; then
@@ -77,5 +76,5 @@ fi
 echo "dry_run=$dry_run"
 echo "signing=$signing"
 echo "version=$version"
-echo "build_number=$((100 + run_number))"
+echo "build_number=$(date -u +%y%m%d%H%M)"
 echo "stand_in_trust_root=$stand_in"
