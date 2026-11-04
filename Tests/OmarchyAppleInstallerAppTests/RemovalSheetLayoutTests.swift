@@ -71,6 +71,24 @@
           parentFrame: tinyScreen, titleBarHeight: 28, visibleFrame: tinyScreen), 300)
     }
 
+    func testHeadingSaysRemovingWhileRemovalRuns() {
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: false, completed: false),
+        "Remove Omarchy")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: true, completed: false),
+        "Removing Omarchy")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: false, removing: false, completed: true),
+        "Omarchy removed")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: true, removing: true, completed: false),
+        "Returning free space")
+      XCTAssertEqual(
+        OmarchyRemovalSheet.heading(freeSpace: true, removing: false, completed: false),
+        "Return free space")
+    }
+
     func testBodyTakesItsContentHeightUntilTheFooterReachesTheCap() {
       XCTAssertEqual(RemovalSheetLayout.bodyHeight(content: 300, footer: 200, cap: 756), 300)
       XCTAssertEqual(RemovalSheetLayout.bodyHeight(content: 900, footer: 200, cap: 756), 556)
@@ -91,7 +109,8 @@
       }
 
       private func host(
-        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false
+        _ scenario: RemovalPreviewScenario, cap: CGFloat, showsAccountFields: Bool = false,
+        removing: Bool = false
       ) -> Hosted {
         let hosted = Hosted()
         hosted.window.isReleasedWhenClosed = false
@@ -99,6 +118,7 @@
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: scenario, heightCap: cap, showsAccountFields: showsAccountFields,
+            removing: removing,
             onControlFrame: { [weak hosted] id, frame in hosted?.controls[id] = frame }
           )
           .environment(\.colorScheme, .light))
@@ -131,7 +151,7 @@
         XCTAssertLessThanOrEqual(size.height, cap, label, file: file, line: line)
         XCTAssertEqual(hosted.view?.frame.size, size, label, file: file, line: line)
         let bounds = CGRect(origin: .zero, size: size)
-        for identifier in ["removal-confirmation", "remove-omarchy"] {
+        for identifier in ["removal-message", "remove-omarchy"] {
           let control = try XCTUnwrap(
             hosted.controls[identifier], "\(label): \(identifier) not laid out", file: file,
             line: line)
@@ -172,19 +192,36 @@
         }
       }
 
-      func testFourDeletionPlanScrollsWhenTheCapIsShorterThanItsContent() throws {
-        for showsAccountFields in [false, true] {
-          let uncapped = host(
-            .success, cap: .greatestFiniteMagnitude, showsAccountFields: showsAccountFields)
-          uncapped.window.close()
-          let cap = (uncapped.size.height - 160).rounded(.down)
-          let size = try assertFits(
-            .success, cap: cap, name: "scrolled", showsAccountFields: showsAccountFields)
-          XCTAssertGreaterThan(size.height, cap - 1, "accountFields=\(showsAccountFields)")
+      func testRemovingShowsOnlyTheHeadingAndTheSpinnerLine() throws {
+        for scenario in [RemovalPreviewScenario.success, .startupDisk, .freeSpace] {
+          let hosted = host(scenario, cap: 756, showsAccountFields: true, removing: true)
+          defer { hosted.window.close() }
+          XCTAssertNil(hosted.controls["removal-message"], "\(scenario)")
+          let spinner = try XCTUnwrap(hosted.controls["removal-progress"], "\(scenario)")
+          XCTAssertFalse(spinner.isEmpty, "\(scenario)")
+          try savePreview(hosted, name: "\(scenario)-removing")
         }
       }
 
-      func testSheetCapsItselfBelowItsParentWindow() throws {
+      /// The live sheet, with its account fields, is the only one tall enough
+      /// to cut short and still check the controls inside it.
+      func testSheetScrollsWhenTheCapIsShorterThanItsContent() throws {
+        let uncapped = host(.success, cap: .greatestFiniteMagnitude, showsAccountFields: true)
+        uncapped.window.close()
+        let cap = (uncapped.size.height - 30).rounded(.down)
+        let size = try assertFits(.success, cap: cap, name: "scrolled", showsAccountFields: true)
+        XCTAssertGreaterThan(size.height, cap - 1)
+      }
+
+      /// Without the plan card the sheet is shorter than any cap, which is at
+      /// least `minimumHeightCap`, so under a real parent it keeps its own
+      /// height. The cap arithmetic is covered by RemovalSheetLayoutTests and
+      /// the scroll test above.
+      func testSheetKeepsItsOwnHeightBelowItsParentWindow() throws {
+        let natural = host(.success, cap: .greatestFiniteMagnitude, showsAccountFields: true)
+        natural.window.close()
+        let height = natural.size.height
+        XCTAssertLessThan(height, RemovalSheetLayout.minimumHeightCap)
         let screen = try XCTUnwrap(NSScreen.main)
         let visible = screen.visibleFrame
         let parent = NSWindow(
@@ -197,8 +234,8 @@
         parent.setFrameTopLeftPoint(CGPoint(x: visible.minX + 40, y: visible.minY + 700))
         parent.orderFront(nil)
         defer { parent.close() }
-        let expected = try XCTUnwrap(RemovalSheetLayout.heightCap(for: parent))
-        XCTAssertLessThan(expected, 700)
+        let cap = try XCTUnwrap(RemovalSheetLayout.heightCap(for: parent))
+        XCTAssertLessThan(cap, 700)
         let view = NSHostingView(
           rootView: OmarchyRemovalSheet(
             previewScenario: .success, heightCap: nil, showsAccountFields: true))
@@ -212,11 +249,11 @@
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
           RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-          if abs(view.fittingSize.height - expected) <= 1 { break }
+          if abs(view.fittingSize.height - height) <= 1 { break }
         }
         XCTAssertIdentical(sheet.sheetParent, parent)
-        XCTAssertLessThanOrEqual(view.fittingSize.height, expected)
-        XCTAssertGreaterThan(view.fittingSize.height, expected - 1)
+        XCTAssertEqual(view.fittingSize.height, height, accuracy: 1)
+        XCTAssertLessThanOrEqual(view.fittingSize.height, cap)
         XCTAssertGreaterThanOrEqual(sheet.frame.minY, visible.minY)
         XCTAssertLessThanOrEqual(sheet.frame.maxY, parent.frame.maxY)
       }

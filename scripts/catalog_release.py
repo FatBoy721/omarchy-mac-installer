@@ -74,11 +74,11 @@ PUBLISH_CHANNELS = ROOT / "scripts" / "publish-channels"
 
 SCHEMA_VERSION = 4
 # Channels a catalog is built for from an image and its VM evidence: edge from
-# an edge image, rc from an rc-lane image (built from the RC channel for a
-# release tag, image-builder/bin/mac-image-check name rc). Stable gets its
-# catalog only through promotion (parked until the kernel work lands), which
-# re-signs a published catalog's exact pins.
-CHANNELS = ("edge", "rc")
+# an edge image, rc and stable from an image of that lane (built from the
+# channel for a release tag, image-builder/bin/mac-image-check name). Promotion
+# (parked) re-signs a published catalog's exact pins instead.
+CHANNELS = ("edge", "rc", "stable")
+RELEASE_CHANNELS = ("rc", "stable")
 PROMOTED_CHANNELS = ("rc", "stable")
 SIGNED_CHANNELS = ("edge", "rc", "stable")
 # A catalog is promoted only forward along this order: edge to rc or
@@ -104,12 +104,17 @@ INSTALLER_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 # the image id was added (their releases, and the catalogs that pin them, are
 # live) are named without it, and a catalog may still be prepared for one.
 IMAGE_NAME = re.compile(r"^omarchy-mac-([a-z]+)-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{12}(?:-([0-9a-f]{12}))?$")
-# An rc-lane image is named from its release tag (without the v) and Mac
+# An rc or stable image is named from its release tag (without the v) and Mac
 # revision; its payload's sha256 stays its identity, and a respin takes the
 # next revision rather than replacing a published release.
-RC_IMAGE_NAME = re.compile(
-    r"^omarchy-mac-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-rc[1-9][0-9]*-r[1-9][0-9]{0,2}"
-    r"-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{12}$")
+_RELEASE_VERSION = r"^omarchy-mac-(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+_RELEASE_SUFFIX = r"-r[1-9][0-9]{0,2}-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{12}$"
+RELEASE_IMAGE_NAMES = {
+    # A bare -rc is a final tag built on the rc lane (channel_set.release_image_label).
+    "rc": re.compile(_RELEASE_VERSION + r"-rc(?:[1-9][0-9]*)?" + _RELEASE_SUFFIX),
+    "stable": re.compile(_RELEASE_VERSION + _RELEASE_SUFFIX),
+}
+FINAL_TAG_ON_RC = re.compile(_RELEASE_VERSION + r"-rc" + _RELEASE_SUFFIX)
 FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
 
 # PKCS#8 and SubjectPublicKeyInfo prefixes of an Ed25519 key (RFC 8410).
@@ -314,11 +319,12 @@ def check_installer(document: object, engine: dict | None = None) -> dict:
 def check_image_name(name: object, channel: str, payload_sha256: str | None = None) -> str:
     """NAME, an image built for CHANNEL. A name with an image id must name
     PAYLOAD_SHA256 when given; an older name without one is accepted as is.
-    An rc catalog takes only an rc-lane image, named from its release tag."""
-    if channel == "rc":
-        if not isinstance(name, str) or RC_IMAGE_NAME.fullmatch(name) is None:
-            raise Refusal("image must be omarchy-mac-<X.Y.Z-rcN>-r<revision>-<YYYY.MM.DD>-<12 hex package set id>,"
-                          f" not built for the rc lane: {name}")
+    An rc or stable catalog takes only an image of that lane, named from its release tag."""
+    if channel in RELEASE_CHANNELS:
+        if not isinstance(name, str) or RELEASE_IMAGE_NAMES[channel].fullmatch(name) is None:
+            shape = "X.Y.Z-rc[N]" if channel == "rc" else "X.Y.Z"
+            raise Refusal(f"image must be omarchy-mac-<{shape}>-r<revision>-<YYYY.MM.DD>-<12 hex package set id>,"
+                          f" not built for the {channel} lane: {name}")
         return name
     match = IMAGE_NAME.fullmatch(name) if isinstance(name, str) else None
     if match is None:
@@ -331,23 +337,23 @@ def check_image_name(name: object, channel: str, payload_sha256: str | None = No
     return name
 
 
-def check_rc_image(image: str, payload: dict, metadata: dict, evidence: dict) -> None:
-    """catalog-rc takes only the rc-lane image that passed VM acceptance. The rc
-    name carries no image id, so it is tied to the image three ways: the
-    evidence records that image (mac-acceptance-record.py --image, the build's
-    artifact name), the payload is that image's rc zip (the lane and date
-    mac-image.yml stages), and every artifact is in the image's own release (as
-    mac-upload.py publishes it). An edge payload and its evidence under an rc
-    name fail all three."""
+def check_release_image(image: str, channel: str, payload: dict, metadata: dict, evidence: dict) -> None:
+    """catalog-rc and catalog-stable take only the image of that lane that
+    passed VM acceptance. Such a name carries no image id, so it is tied to the
+    image three ways: the evidence records that image
+    (mac-acceptance-record.py --image, the build's artifact name), the payload
+    is that image's zip for the lane (the lane and date mac-image.yml stages),
+    and every artifact is in the image's own release (as mac-upload.py publishes
+    it). A payload of another lane and its evidence under this name fail all three."""
     recorded = evidence.get("image")
     if recorded is None:
-        raise Refusal(f"the VM evidence names no image: catalog-rc takes only the rc image {image} that passed acceptance")
+        raise Refusal(f"the VM evidence names no image: catalog-{channel} takes only the {channel} image {image} that passed acceptance")
     if recorded != image:
         raise Refusal(f"the VM evidence is for {recorded}, not {image}")
     date = re.search(r"-r[1-9][0-9]{0,2}-([0-9]{4}\.[0-9]{2}\.[0-9]{2})-[0-9a-f]{12}$", image).group(1)
-    expected = f"omarchy-{date}-aarch64-apple-silicon-mac-rc-os-package.zip"
+    expected = f"omarchy-{date}-aarch64-apple-silicon-mac-{channel}-os-package.zip"
     if payload["fileName"] != expected:
-        raise Refusal(f"the payload {payload['fileName']} is not {image}'s rc zip ({expected})")
+        raise Refusal(f"the payload {payload['fileName']} is not {image}'s {channel} zip ({expected})")
     urls = [("payload", payload["url"]), *(("payload part", part["url"]) for part in payload.get("parts", [])),
             ("installer_data", metadata["url"])]
     for field, url in urls:
@@ -357,7 +363,7 @@ def check_rc_image(image: str, payload: dict, metadata: dict, evidence: dict) ->
 
 def check_channel(channel: str) -> str:
     if channel not in CHANNELS:
-        raise Refusal(f"channel must be one of {', '.join(CHANNELS)} (stable comes from promotion): {channel}")
+        raise Refusal(f"channel must be one of {', '.join(CHANNELS)} {channel}")
     return channel
 
 
@@ -452,8 +458,8 @@ def build_catalog(
     metadata = check_artifact(metadata, "installer_data")
     engine = check_engine(engine)
     check_evidence(evidence, payload["sha256"])
-    if channel == "rc":
-        check_rc_image(image, payload, metadata, evidence)
+    if channel in RELEASE_CHANNELS:
+        check_release_image(image, channel, payload, metadata, evidence)
     installer = check_installer(installer, engine)
 
     def plain(artifact: dict) -> dict:
@@ -573,11 +579,20 @@ def from_catalog(field: str, artifact: object, digest: object, allow_parts: bool
     return document
 
 
+def check_promotion_source(source: dict) -> None:
+    """An image of a final tag built on the rc lane stays on rc: stable builds its own."""
+    for model in source.get("models", []):
+        image = model.get("evidenceRevision")
+        if isinstance(image, str) and FINAL_TAG_ON_RC.fullmatch(image):
+            raise Refusal(f"{image} is a final tag built on the rc lane: it is never promoted")
+
+
 def promote_catalog(source: dict, now: datetime.datetime) -> dict:
     """SOURCE with only its sequence and issue time replaced: every model,
     pin, digest and the installer block keep exactly the source's values."""
     if source.get("schemaVersion") != SCHEMA_VERSION:
         raise Refusal("the source catalog is not a schema 4 catalog")
+    check_promotion_source(source)
     promotion_artifacts(source)
     errors = supported_models.catalog_errors(source)
     if errors:
@@ -1119,18 +1134,18 @@ def command_prepare(arguments) -> None:
 
 
 def command_check_evidence(arguments) -> None:
-    # Evidence gates only the catalogs built from an image: edge and rc.
+    # Evidence gates only the catalogs built from an image.
     channel = check_channel(arguments.catalog.name.removeprefix("catalog-").removesuffix(".json"))
     catalog = load_json(arguments.catalog, "catalog")
     digest = catalog_payload_digest(catalog)
     evidence = check_evidence(load_json(arguments.evidence, "evidence") if arguments.evidence else None, digest)
-    if channel == "rc":
+    if channel in RELEASE_CHANNELS:
         images = {model.get("evidenceRevision") for model in catalog["models"]}
         if len(images) != 1:
-            raise Refusal("catalog-rc must name exactly one image")
-        image = check_image_name(images.pop(), "rc")
+            raise Refusal(f"catalog-{channel} must name exactly one image")
+        image = check_image_name(images.pop(), channel)
         pin = catalog["models"][0]
-        check_rc_image(image, from_catalog("payload", pin["payloadArtifact"], pin["payloadDigest"], True),
+        check_release_image(image, channel, from_catalog("payload", pin["payloadArtifact"], pin["payloadDigest"], True),
                        from_catalog("installer_data", pin["metadataArtifact"], pin["metadataDigest"]), evidence)
     print(f"evidence=passed {digest}")
 
@@ -1266,6 +1281,7 @@ def command_check_promotion(arguments) -> None:
         source_sha256 = hashlib.sha256(decode_envelope(envelope)[0]).hexdigest()
         if source_sha256 != arguments.source_sha256:
             raise Refusal(f"the source catalog is sha256 {source_sha256}, not the pinned {arguments.source_sha256}")
+    check_promotion_source(source)
     promoted = load_json(arguments.catalog, "catalog")
     check_same_pins(source, promoted)
     promotion_artifacts(promoted)

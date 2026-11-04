@@ -1,13 +1,14 @@
 name: Mac release pipeline
 
 # Carries one image from build to a signed catalog of its lane: an edge image
-# to catalog-edge, or, given a release tag (v4.5.0-rc2), an rc image built
-# from the RC channel for that tag to catalog-rc:
+# to catalog-edge, or, given a release tag, an image built from that tag's
+# channel to its catalog: v4.5.0-rc2 from rc to catalog-rc, v4.5.0 from stable
+# to catalog-stable:
 #
 #   plan        refuses any run off main (the image builds only from main, so
 #               a dry run elsewhere would skip every job and pass) or for a
-#               pull request, and names the lane: rc for a release tag (with
-#               its Mac revision, default 1), else edge
+#               pull request, and names the lane: rc or stable for a release
+#               tag (with its Mac revision, default 1), else edge
 #   build       mac-image.yml: builds and attests the image for the lane (no
 #               secrets)
 #   acceptance  mac-acceptance.yml: the VM harness's fresh-install scenarios
@@ -49,8 +50,8 @@ name: Mac release pipeline
 #
 # Started by edge-dispatch.yml (gh workflow run, dry-run=false, no release
 # tag: an edge run) when an edge publish changes a package the image installs,
-# or by hand (dry run by default). An rc run is started by hand with its
-# release tag. Never for pull requests.
+# or by hand (dry run by default). An rc or stable run is started by hand with
+# its release tag. Never for pull requests.
 
 on:
   workflow_dispatch:
@@ -69,13 +70,17 @@ on:
         options: [r2, github-release]
         default: r2
       release-tag:
-        description: The omacom/omarchy rc tag to build an rc image for (v4.5.0-rc2); empty for an edge image
+        description: The omacom/omarchy tag to build an image for, rc (v4.5.0-rc2) or stable (v4.5.0); empty for an edge image
         type: string
         default: ''
       mac-revision:
-        description: The rc image's Mac revision under its tag (1 to 999); empty for 1
+        description: The rc or stable image's Mac revision under its tag (1 to 999); empty for 1
         type: string
         default: ''
+      final-tag-on-rc:
+        description: Build a final tag (v4.5.0) from the rc channel for catalog-rc, before rc is promoted to stable
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -108,6 +113,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           MAC_REVISION: ${{ inputs.mac-revision }}
+          FINAL_TAG_ON_RC: ${{ inputs.final-tag-on-rc }}
         run: |
           set -euo pipefail
           if [[ $EVENT == pull_request || $EVENT == pull_request_target ]]; then
@@ -121,15 +127,23 @@ jobs:
             echo "::error::the pipeline runs only from main, dry runs included, not $GITHUB_REF"
             exit 1
           fi
-          # A release tag makes an rc run; the builder checks the tag again
-          # against the RC channel's runtime (builder/channel_set.py).
+          # A release tag makes an rc or stable run; the builder checks the tag
+          # again against that channel's runtime (builder/channel_set.py).
           lane=edge
+          if [[ ${FINAL_TAG_ON_RC:-} == true && ! $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$ ]]; then
+            echo "::error::final-tag-on-rc takes a final tag like v4.5.0"
+            exit 1
+          fi
           if [[ -n $RELEASE_TAG ]]; then
-            if [[ ! $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})-rc[1-9][0-9]{0,3}$ ]]; then
-              echo "::error::the release tag must be an rc tag like v4.5.0-rc2"
+            if [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})-rc[1-9][0-9]{0,3}$ ]]; then
+              lane=rc
+            elif [[ $RELEASE_TAG =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$ ]]; then
+              lane=stable
+              [[ ${FINAL_TAG_ON_RC:-} != true ]] || lane=rc
+            else
+              echo "::error::the release tag must be an rc tag like v4.5.0-rc2 or a final tag like v4.5.0"
               exit 1
             fi
-            lane=rc
             MAC_REVISION=${MAC_REVISION:-1}
             if [[ ! $MAC_REVISION =~ ^[1-9][0-9]{0,2}$ ]]; then
               echo "::error::the Mac revision must be 1 to 999"

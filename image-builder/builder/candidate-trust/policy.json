@@ -69,6 +69,14 @@
           "omarchy-mac": "omarchy-mac",
           "omarchy-mac-boot": "omarchy-mac-boot"
         }
+      },
+      "stable": {
+        "runtime_packages": {
+          "omarchy": "omarchy",
+          "omarchy-settings": "omarchy-settings",
+          "omarchy-mac": "omarchy-mac",
+          "omarchy-mac-boot": "omarchy-mac-boot"
+        }
       }
     }
   },

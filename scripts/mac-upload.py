@@ -85,11 +85,11 @@ LISTING_ATTEMPTS = 6
 # a rebuild on the same packages and day never lands in a published release,
 # and the same bytes always go to the same one.
 IMAGE_NAME = re.compile(r"^omarchy-mac-(edge|rc|stable)-\d{4}\.\d{2}\.\d{2}-[0-9a-f]{12}-([0-9a-f]{12})$")
-# An rc-lane image is named from its release tag and Mac revision instead
-# (mac-image-check name rc): no image id, so the destination's immutability
+# An rc or stable image is named from its release tag and Mac revision instead
+# (mac-image-check name): no image id, so the destination's immutability
 # keeps a rebuild out of a published release, and a respin takes a new revision.
 RELEASE_IMAGE_NAME = re.compile(
-    r"^omarchy-mac-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-rc[1-9]\d*-r[1-9]\d{0,2}-\d{4}\.\d{2}\.\d{2}-[0-9a-f]{12}$")
+    r"^omarchy-mac-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc(?:[1-9]\d*)?)?-r[1-9]\d{0,2}-\d{4}\.\d{2}\.\d{2}-[0-9a-f]{12}$")
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 RUN_ID = re.compile(r"^[1-9][0-9]{0,19}$")
@@ -147,7 +147,7 @@ def check_inputs(image: str, sha256: str, dry_run: bool, run_ids: list[str], par
     release = RELEASE_IMAGE_NAME.fullmatch(image) is not None
     require(name is not None or release,
             f"{image!r} is not an image name (omarchy-mac-<lane>-<YYYY.MM.DD>-<package set id>-<image id>,"
-            " or omarchy-mac-<X.Y.Z-rcN>-r<revision>-<YYYY.MM.DD>-<package set id>)")
+            " or omarchy-mac-<X.Y.Z[-rc[N]]>-r<revision>-<YYYY.MM.DD>-<package set id>)")
     require(SHA256_HEX.fullmatch(sha256) is not None, "the expected image sha256 must be 64 lowercase hex digits")
     if not release:
         require(name.group(2) == sha256[:12], f"{image} names image id {name.group(2)}, not the zip's sha256 {sha256}")

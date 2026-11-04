@@ -272,6 +272,9 @@ CHANNEL_VERSIONS = dict(VERSIONS, **{"omarchy": "4.0.0.r6971.g492b883-1", "omarc
 # What rc serves for v4.5.0-rc2: the clean runtime, its pkgver the tag's version.
 RC_RELEASE = "v4.5.0-rc2"
 RC_VERSIONS = dict(CHANNEL_VERSIONS, **{"omarchy": "4.5.0rc2-1", "omarchy-settings": "4.5.0rc2-1"})
+# What stable serves for v4.5.0: the clean runtime at the tag's final version.
+STABLE_RELEASE = "v4.5.0"
+STABLE_VERSIONS = dict(CHANNEL_VERSIONS, **{"omarchy": "4.5.0-1", "omarchy-settings": "4.5.0-1"})
 
 
 def channel_trust(base: Path, candidate: Signer, channel: Signer) -> Path:
@@ -312,7 +315,8 @@ def make_channel(directory: Path, signer: Signer, *, versions=None, contents=Non
     names = CHANNEL_NAMES if lane == "edge" else {}
     base_versions = dict(VERSIONS)
     base_versions.update({role: version for role, version in
-                          (CHANNEL_VERSIONS if lane == "edge" else RC_VERSIONS).items() if role in base_versions})
+                          {"edge": CHANNEL_VERSIONS, "rc": RC_VERSIONS, "stable": STABLE_VERSIONS}[lane].items()
+                          if role in base_versions})
     versions = dict(base_versions, **(versions or {}))
     contents = contents or channel_contents()
     packages = directory / "packages"
@@ -624,7 +628,7 @@ def make_root(root: Path, candidates: Path, layout: str | None = None, lane: str
     write(root, "var/lib/omarchy/image/target", image_target(summary))
     (state / "image").chmod(0o755)
     if lane != "edge":
-        write(root, "var/lib/omarchy/install-receipt", install_receipt(lane))
+        write(root, "var/lib/omarchy/install-receipt", install_receipt(lane, STABLE_RELEASE if lane == "stable" else RC_RELEASE))
     write(root, "var/lib/omarchy/mac-first-boot/pending", b"")
     write(root, "var/lib/omarchy/mac-first-boot/deferred-steps", "install/hardware/apple/limine-boot.sh\n")
     write(root, "var/lib/omarchy/provisioning/pending", b"")
@@ -640,10 +644,13 @@ def make_root(root: Path, candidates: Path, layout: str | None = None, lane: str
     template += f"\n[omarchy]\nServer = https://pkgs.omarchy.org/{lane}/$arch\n"
     # A runtime with a platform template keeps asahi-alarm out of its plain aarch64 one.
     asahi = "\n[asahi-alarm]\nServer = https://github.com/asahi-alarm/asahi-alarm/releases/download/aarch64\n"
+    # A release lane's image takes Arch Linux ARM from that lane's frozen snapshot.
+    release_mirror = f"Server = https://arm-{lane}-mirror.omarchy.org/$arch/$repo\n" if lane != "edge" else None
     templates = {"aarch64": (template.replace(asahi, "") if layout else template,
-                             "Server = https://mirror.invalid/$arch/$repo\n")}
+                             release_mirror or "Server = https://mirror.invalid/$arch/$repo\n")}
     for name in RUNTIME_LAYOUTS[layout]["templates"] if layout else ():
-        templates.setdefault(name, (f"# {name}\n" + template, f"Server = https://{name}.mirror.invalid/$arch/$repo\n"))
+        templates.setdefault(name, (f"# {name}\n" + template,
+                                    release_mirror or f"Server = https://{name}.mirror.invalid/$arch/$repo\n"))
     for name, (conf, mirrors) in templates.items():
         write(root, f"usr/share/omarchy/default/pacman/{name}/pacman-{lane}.conf", conf)
         write(root, f"usr/share/omarchy/default/pacman/{name}/mirrorlist-{lane}", mirrors)

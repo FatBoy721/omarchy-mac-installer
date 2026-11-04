@@ -72,11 +72,7 @@ Simulation proves presentation and session behavior. It does not prove hardware 
 
 ## Removal
 
-Choose **Installation → Remove Omarchy…** to dry-test removal independently of
-installation. The **Simulation → Removal Scenario** menu selects the removal outcome. Type
-`delete omarchy installation and data` exactly to enable removal. No real password
-is requested in simulation. See [Removal.md](Removal.md) for the supported disk
-layout, recovery behavior and test coverage.
+Choose **Installation → Remove Omarchy…** to dry-test removal independently of installation. The **Simulation → Removal Scenario** menu selects the removal outcome. **Remove Omarchy** is enabled as soon as the plan is shown, since no real password is requested in simulation. See [Removal.md](Removal.md) for the supported disk layout, recovery behavior and test coverage.
 
 The **Disk alignment · whole GB unchanged** scenario reproduces normal 1 MiB
 partition alignment. Selecting 180 GB must keep 180 GB displayed without a

@@ -719,6 +719,9 @@ def check_lane_channel(root: Path, lane: str, candidates: Candidates) -> str:
     omarchy = section_servers(root / "etc/pacman.conf", "omarchy")
     require(omarchy and all(f"/{lane}/" in server for server in omarchy),
             f"/etc/pacman.conf's [omarchy] is not the {lane} repository: {', '.join(omarchy) or 'no server'}")
+    mirrors = servers(root / "etc/pacman.d/mirrorlist")
+    require(mirrors and all(server.startswith(f"https://arm-{lane}-mirror.omarchy.org/") for server in mirrors),
+            f"/etc/pacman.d/mirrorlist is not the {lane} Arch Linux ARM mirror: {', '.join(mirrors) or 'no server'}")
     return f"the clean runtime and the runtime's aarch64-apple {lane} repositories ({', '.join(omarchy)}), nothing from edge"
 
 
@@ -743,7 +746,7 @@ def check_install_receipt(root: Path, lane: str, factory: Path | None, trust: Pa
     target = read_image_target(root / "var/lib/omarchy/image/target", CHANNEL_TARGET_FIELDS)
     for key in IDENTITY_FIELDS:
         require(receipt[key] == target.get(key), f"the install receipt's {key} is not the image target's")
-    image = (rf"omarchy-mac-{re.escape(receipt['release_tag'].removeprefix('v'))}-r{receipt['mac_revision']}"
+    image = (rf"omarchy-mac-{re.escape(channel_set.release_image_label(lane, receipt['release_tag']))}-r{receipt['mac_revision']}"
              rf"-[0-9]{{4}}\.[0-9]{{2}}\.[0-9]{{2}}-{receipt['package_set_sha256'][:12]}")
     require(re.fullmatch(image, receipt["image"]) is not None, f"the install receipt names another image: {receipt['image']}")
     if factory is not None:
