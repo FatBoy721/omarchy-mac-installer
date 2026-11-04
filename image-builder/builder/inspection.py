@@ -719,6 +719,9 @@ def check_lane_channel(root: Path, lane: str, candidates: Candidates) -> str:
     omarchy = section_servers(root / "etc/pacman.conf", "omarchy")
     require(omarchy and all(f"/{lane}/" in server for server in omarchy),
             f"/etc/pacman.conf's [omarchy] is not the {lane} repository: {', '.join(omarchy) or 'no server'}")
+    mirrors = servers(root / "etc/pacman.d/mirrorlist")
+    require(mirrors and all(server.startswith(f"https://arm-{lane}-mirror.omarchy.org/") for server in mirrors),
+            f"/etc/pacman.d/mirrorlist is not the {lane} Arch Linux ARM mirror: {', '.join(mirrors) or 'no server'}")
     return f"the clean runtime and the runtime's aarch64-apple {lane} repositories ({', '.join(omarchy)}), nothing from edge"
 
 
