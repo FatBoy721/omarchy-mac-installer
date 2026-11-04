@@ -48,7 +48,9 @@ The image is what a new install writes, and the builder migrates nothing install
 
 ## Promotion
 
-Promotion to rc and stable is parked. When unparked, it carries the edge catalog unchanged: the Aurora image, the edge runtime, the MacBook Neo and app 2.3.0 ([what a promotion carries](catalog-release.md#promotion-parked)). Accepting that is a maintainer decision to record first.
+A release tag builds a release image instead of an edge one: `release-tag=v4.5.0-rc2` builds from the rc channel and publishes `catalog-rc`, and `release-tag=v4.5.0` builds from the stable channel and publishes `catalog-stable`. Stable can only be built once rc has been promoted to stable, because the builder requires the tag's `omarchy` in that channel. To install the final packages before that promotion, `release-tag=v4.5.0` with `final-tag-on-rc=true` builds from the rc channel and publishes `catalog-rc`. That image is named `omarchy-mac-4.5.0-rc-r<revision>-...`, its bare `-rc` keeps it apart from the stable image, and `catalog-stable` refuses it, by build or by promotion. Both are started by hand and keep the same gates as an edge run.
+
+Catalog promotion to rc and stable is parked. When unparked, it carries the edge catalog unchanged: the Aurora image, the edge runtime, the MacBook Neo and app 2.3.0 ([what a promotion carries](catalog-release.md#promotion-parked)). Accepting that is a maintainer decision to record first.
 
 ## Qualification on edge
 

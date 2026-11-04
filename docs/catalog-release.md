@@ -87,7 +87,7 @@ The `sign` job waits for the owner's approval in the run page, in a dry run too:
 
 ## Promotion (parked)
 
-> **Parked.** rc and stable promotion waits for the kernel work. Run `mac-promote.yml` only as a dry run until the owner unparks it. A real promotion needs `dry-run` off, `confirm` set to `promote-<channel>` and `source-sha256` pinning the source catalog, then the owner's approval in `promote` and again in `catalog-release`.
+> **Parked.** rc and stable catalogs come from images built for their lane (`mac-release-pipeline.yml` with a release tag). Promotion re-signs another channel's image instead, so its runtime and channel stay the source's. rc and stable promotion waits for the kernel work. Run `mac-promote.yml` only as a dry run until the owner unparks it. A real promotion needs `dry-run` off, `confirm` set to `promote-<channel>` and `source-sha256` pinning the source catalog, then the owner's approval in `promote` and again in `catalog-release`.
 
 **What a promotion carries.** A promotion keeps every model, pin, preview note and installer requirement of the edge catalog it re-signs (`promote_catalog` in `scripts/catalog_release.py`). Promoting today's edge catalog to rc or stable would therefore ship the unified Aurora image (Aura's m1n1 and Stage 1 until an edge image built with `m1n1-aurora` is published and signed into the catalog, then omacom/m1n1's; the Aurora U-Boot and Mesa, `speakerguardd`), the edge `omarchy-dev` runtime, the MacBook Neo, its `untested` note and app 2.3.0 as the minimum, all unchanged. Nothing narrows that scope. Accepting it is a maintainer decision to record before promotion is unparked.
 

@@ -37,7 +37,7 @@ die() {
 public_key=""
 base_url=""
 output=""
-default_channel="rc"
+default_channel="stable"
 adhoc=0
 stopgap=0
 

@@ -19,8 +19,7 @@
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac…"
-    public static let inspectingSubheadline =
-      "Checking the Mac model, macOS version, power, FileVault, and free disk space."
+    public static let inspectingSubheadline = "Making sure this Mac is ready for Omarchy…"
 
     // MARK: Screen A2 — Existing install
 

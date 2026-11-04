@@ -331,6 +331,19 @@ class UploadTests(unittest.TestCase):
             with self.subTest(image):
                 self.assertRefused("not an image name", upload.check_inputs, **{**good, "image": image})
 
+    def test_a_final_tag_built_on_rc_is_taken_under_its_own_name(self):
+        upload.check_inputs(image="omarchy-mac-4.5.0-rc-r1-2026.10.28-0123456789ab", sha256=self.sha256, dry_run=False,
+                            run_ids=["123"], part_bytes="")
+
+    def test_a_stable_image_named_from_its_final_tag_is_taken(self):
+        good = dict(image="omarchy-mac-4.5.0-r1-2026.10.28-0123456789ab", sha256=self.sha256, dry_run=False,
+                    run_ids=["123"], part_bytes="")
+        upload.check_inputs(**good)
+        for image in ("omarchy-mac-4.5.0-r0-2026.10.28-0123456789ab", "omarchy-mac-v4.5.0-r1-2026.10.28-0123456789ab",
+                      "omarchy-mac-4.5-r1-2026.10.28-0123456789ab"):
+            with self.subTest(image):
+                self.assertRefused("not an image name", upload.check_inputs, **{**good, "image": image})
+
     def test_only_this_repositorys_main_branch_runs_are_trusted(self):
         repository = "omacom/omarchy-mac-installer"
         run = {"id": 7, "repository": {"full_name": repository}, "head_repository": {"full_name": repository},

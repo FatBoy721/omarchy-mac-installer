@@ -1097,6 +1097,73 @@ class ChannelImageInspectionTest(unittest.TestCase):
         self.assertFails("factory", "records another channel set")
 
 
+class StableChannelImageInspectionTest(unittest.TestCase):
+    """A public image built from the stable channel set for v4.5.0: the clean runtime, the stable
+    repositories and mirror, and nothing from edge or rc."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.base = Path(cls.tmp.name)
+        cls.candidate = fixtures.Signer(cls.base / "candidate")
+        cls.channel = fixtures.Signer(cls.base / "channel", "Omarchy fixture <pkgs@example.invalid>")
+        cls.trust = fixtures.channel_trust(cls.base, cls.candidate, cls.channel)
+        database, sha256 = fixtures.make_channel(cls.base / "stable", cls.channel, lane="stable")
+        channel_set = fixtures.load("channel_set", "builder/channel_set.py")
+        cls.set = cls.base / "set"
+        cls.summary = channel_set.snapshot(database, sha256, "stable", cls.base / "stable/packages", cls.set, cls.trust,
+                                           release_tag=fixtures.STABLE_RELEASE)
+        cls.good = cls.base / "good"
+        fixtures.make_root(cls.good, cls.set, "e1b0e5e9b", lane="stable")
+
+    @classmethod
+    def tearDownClass(cls):
+        for signer in (cls.candidate, cls.channel):
+            signer.close()
+        for path in cls.base.rglob("*"):
+            if path.is_dir() and not path.is_symlink():
+                path.chmod(0o700)
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        work = Path(tempfile.mkdtemp(dir=self.base))
+        self.root = work / "root"
+        shutil.copytree(self.good, self.root, symlinks=True)
+        self.factory = work / "factory"
+        fixtures.make_factory(self.factory, self.root, self.summary)
+        SUBVOLUMES.clear()
+        SUBVOLUMES.add(self.root / ".snapshots")
+
+    def inspect(self):
+        return inspection.inspect(self.root, self.set, "stable", self.factory, trust=self.trust)
+
+    def test_a_stable_image_passes_with_its_receipt(self):
+        report = self.inspect()
+        failed = {name: check for name, check in report["checks"].items() if check["result"] != "passed"}
+        self.assertEqual(report["result"], "passed", failed)
+        self.assertEqual(report["channel"], "stable")
+        self.assertEqual(report["installed_versions"]["omarchy"], "4.5.0-1")
+        receipt = report["install_receipt"]
+        self.assertEqual((receipt["release_tag"], receipt["lane"], receipt["catalog_channel"], receipt["omarchy_image_ref"]),
+                         ("v4.5.0", "stable", "stable", "v4.5.0"))
+        self.assertEqual(receipt["image"], f"omarchy-mac-4.5.0-r1-2026.09.28-{fixtures.PACKAGE_SET_SHA256[:12]}")
+
+    def test_a_receipt_with_an_rc_lane_name_is_refused_on_the_stable_lane(self):
+        path = self.root / "var/lib/omarchy/install-receipt"
+        path.write_text(path.read_text().replace("image=omarchy-mac-4.5.0-r1-", "image=omarchy-mac-4.5.0-rc-r1-"))
+        report = self.inspect()
+        self.assertEqual(report["result"], "failed")
+        self.assertIn("names another image", report["checks"]["install-receipt"]["detail"])
+
+    def test_another_lanes_or_rolling_mirror_is_refused(self):
+        for server in ("https://arm-rc-mirror.omarchy.org/$arch/$repo", "https://ca.us.mirror.archlinuxarm.org/$arch/$repo"):
+            with self.subTest(server):
+                (self.root / "etc/pacman.d/mirrorlist").write_text(f"Server = {server}\n")
+                report = self.inspect()
+                self.assertEqual(report["checks"]["lane-channel"]["result"], "failed", report["checks"]["lane-channel"])
+                self.assertIn("is not the stable Arch Linux ARM mirror", report["checks"]["lane-channel"]["detail"])
+
+
 class RcChannelImageInspectionTest(unittest.TestCase):
     """A public image built from an rc channel set for v4.5.0-rc2: the clean runtime, the rc
     repositories and nothing from edge, and the install receipt that names the release."""
@@ -1176,7 +1243,8 @@ class RcChannelImageInspectionTest(unittest.TestCase):
     def test_the_receipt_must_name_this_lane_its_contract_and_its_build(self):
         for changes, pattern in (({"lane": "edge"}, "is not for the rc lane"),
                                  ({"catalog_channel": "stable"}, "is not for the rc lane"),
-                                 ({"release_tag": "v4.5.0"}, "v4.5.0 is not an rc release tag"),
+                                 ({"release_tag": "v4.5.0-rc3"}, "does not name the rc lane's install contract"),
+                                 ({"release_tag": "v4.5"}, "v4.5 is not an rc release tag"),
                                  ({"omarchy_runtime_package": "omarchy-dev"}, "does not name the rc lane's install contract"),
                                  ({"omarchy_image_ref": "rc"}, "does not name the rc lane's install contract"),
                                  ({"mac_revision": "0"}, "names no Mac revision"),
@@ -1190,6 +1258,13 @@ class RcChannelImageInspectionTest(unittest.TestCase):
         self.receipt()
         fixtures.write(self.root, "var/lib/omarchy/install-receipt", fixtures.install_receipt() + "extra=1\n")
         self.assertFails("install-receipt", "is not format 1")
+
+    def test_a_final_tag_on_the_rc_lane_names_its_image_with_a_bare_rc(self):
+        final = {"release_tag": "v4.5.0", "omarchy_image_ref": "v4.5.0"}
+        self.receipt(**final, image="omarchy-mac-4.5.0-rc-r1-2026.09.28-" + fixtures.PACKAGE_SET_SHA256[:12])
+        self.assertEqual(self.inspect()["checks"]["install-receipt"]["result"], "passed")
+        self.receipt(**final, image="omarchy-mac-4.5.0-r1-2026.09.28-" + fixtures.PACKAGE_SET_SHA256[:12])
+        self.assertFails("install-receipt", "names another image")
 
     def test_the_factory_keeps_the_images_receipt(self):
         fixtures.write(self.factory, "var/lib/omarchy/install-receipt", fixtures.install_receipt(revision="2"))

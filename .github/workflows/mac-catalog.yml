@@ -44,7 +44,7 @@ on:
         type: string
         required: true
       channel:
-        description: Channel to publish, edge for an edge image or rc for an rc-lane image (stable comes from promotion)
+        description: Channel to publish, edge, rc or stable, the lane the image was built for
         type: string
         default: edge
       dry-run:
@@ -102,7 +102,7 @@ on:
       channel:
         description: Channel to publish
         type: choice
-        options: [edge, rc]
+        options: [edge, rc, stable]
         default: edge
       dry-run:
         description: Sign and publish to a scratch directory only

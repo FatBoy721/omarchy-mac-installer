@@ -102,6 +102,8 @@ existing application bundle.
 
 For a local hardware test, first assemble an explicitly marked `OMARCHY_DEVELOPER_BUILD=1` app with its sealed developer catalog, then run `Packaging/build-developer-pkg.sh APP OUTPUT.pkg`. This verifies the app and embedded client requirement and creates an unsigned local package that installs the app and its helper through PackageKit. It requires the developer marker and does not use the production signing identities. This package is for local testing, not public distribution.
 
+A developer build's helper blocks any older build, including a release: `SMJobBless` won't replace a helper with a lower build, and the app reports the service couldn't be set up. To go back to an older release on that Mac, remove the helper first: `sudo launchctl bootout system/org.omarchy.installer.helper`, then delete `/Library/PrivilegedHelperTools/org.omarchy.installer.helper` and `/Library/LaunchDaemons/org.omarchy.installer.helper.plist`.
+
 ## Release workflow
 
 `.github/workflows/mac-app-release.yml` builds the public download. Pushing a `v<version>` tag builds the app for the Developer ID team in `identity.conf`, signs it in the `macos-release` environment, notarizes and staples it into `Omarchy-Mac-Installer-<version>.dmg` (the app beside an `/Applications` link) and leaves the `.dmg` and its `.sha256` on a draft prerelease `v<version>`, never marked latest; the owner publishes it. A manual dispatch defaults to an ad hoc dry run that needs no secrets and publishes nothing. `Packaging/release/plan` decides what a run may do and refuses the rest: only a `v*` tag publishes, only a `v*` tag or `main` may use the Developer ID (a signed dry run from `main` tests the secrets), and pull requests never trigger the workflow.

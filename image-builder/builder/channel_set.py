@@ -36,6 +36,7 @@ ships a source revision file; the -dev runtime ships none, and is identified
 by its version and archive digest.
 
   channel_set.py lane --lane LANE [--release-tag TAG]
+  channel_set.py label --lane LANE --release-tag TAG
   channel_set.py files --db FILE --lane LANE
   channel_set.py import --db FILE --db-sha256 HEX --lane LANE [--release-tag TAG] --packages DIR --output DIR
   channel_set.py describe --db FILE --lane LANE [--release-tag TAG] --packages DIR
@@ -59,7 +60,8 @@ LANES = ('edge', 'rc', 'stable')
 DEFAULT_LANE = 'edge'
 NUMBER = r'(0|[1-9][0-9]{0,3})'
 RELEASE_TAGS = {
-    'rc': re.compile(rf'v{NUMBER}\.{NUMBER}\.{NUMBER}-rc([1-9][0-9]{{0,3}})'),
+    # A final tag on rc builds the final runtime from rc before it is promoted to stable.
+    'rc': re.compile(rf'v{NUMBER}\.{NUMBER}\.{NUMBER}(?:-rc([1-9][0-9]{{0,3}}))?'),
     'stable': re.compile(rf'v{NUMBER}\.{NUMBER}\.{NUMBER}'),
 }
 # What a pacman version and name look like in a repository database.
@@ -116,7 +118,15 @@ def release_version(lane, tag):
     match = RELEASE_TAGS[lane].fullmatch(tag)
     require(match is not None, f"{tag} is not {'an' if lane == 'rc' else 'a'} {lane} release tag")
     version = '.'.join(match.groups()[:3])
-    return f'{version}rc{match.group(4)}' if lane == 'rc' else version
+    candidate = match.group(4) if lane == 'rc' else None
+    return f'{version}rc{candidate}' if candidate else version
+
+
+def release_image_label(lane, tag):
+    """TAG as an image name carries it. A final tag on the rc lane takes a bare -rc (4.5.0-rc), so its
+    image is never named as the stable image of that tag, which a catalog-stable would take."""
+    label = tag.removeprefix('v')
+    return f'{label}-rc' if lane == 'rc' and '-rc' not in label else label
 
 
 def lane_inputs(lane, release_tag=None, trust=TRUST):
@@ -356,15 +366,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
     laned = commands.add_parser('lane')
+    labelled = commands.add_parser('label')
     listed = commands.add_parser('files')
     imported = commands.add_parser('import')
     described = commands.add_parser('describe')
     installed = commands.add_parser('verify-installed')
     for command in (listed, imported, described, installed):
         command.add_argument('--db', type=Path, required=True)
-    for command in (laned, listed, imported, described):
+    for command in (laned, labelled, listed, imported, described):
         command.add_argument('--lane', required=True)
-    for command in (laned, imported, described):
+    for command in (laned, labelled, imported, described):
         command.add_argument('--release-tag')
     for command in (imported, described):
         command.add_argument('--packages', type=Path, required=True)
@@ -377,6 +388,10 @@ def main(argv=None):
     try:
         if args.command == 'lane':
             print(''.join(f'{key}={value}\n' for key, value in lane_inputs(args.lane, args.release_tag).items()), end='')
+            return 0
+        if args.command == 'label':
+            release_version(args.lane, args.release_tag)
+            print(release_image_label(args.lane, args.release_tag))
             return 0
         if args.command == 'files':
             print('\n'.join(files(args.db, args.lane)))
