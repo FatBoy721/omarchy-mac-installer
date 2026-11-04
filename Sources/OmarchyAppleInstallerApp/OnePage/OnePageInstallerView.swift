@@ -49,8 +49,8 @@ struct OnePageInstallerView: View {
   /// The window fits its content between these heights. A phase shorter than
   /// the minimum, such as the first screen, keeps its content at the top and
   /// its buttons at the bottom; a taller one scrolls past the maximum.
-  private static let minimumContentHeight: CGFloat = 400
-  private static let maximumContentHeight: CGFloat = 680
+  static let minimumContentHeight: CGFloat = 400
+  static let maximumContentHeight: CGFloat = 680
 
   var body: some View {
     ScrollView {
