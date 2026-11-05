@@ -24,6 +24,7 @@ defaults:
 jobs:
   recovery:
     name: Build the native Recovery image input
+    if: github.repository == 'omacom/omarchy-mac-installer'
     uses: ./.github/workflows/recovery-app.yml
     permissions:
       contents: read
@@ -31,7 +32,8 @@ jobs:
   image:
     name: Check real edge channel inputs, optionally build
     needs: recovery
-    runs-on: ubuntu-24.04-arm
+    # Namespace's bleeding-edge kernel, as mac-image.yml: a full build needs FAT.
+    runs-on: namespace-profile-arm64-linux-apple-12x32;kernel.release-channel=bleeding-edge
     timeout-minutes: 90
     env:
       BUILD_IMAGE: ${{ inputs.build-image }}
@@ -42,6 +44,13 @@ jobs:
           persist-credentials: false
       - name: Set the work directory
         run: echo "WORK=$RUNNER_TEMP/recovery-image" >>"$GITHUB_ENV"
+      - name: Record the host
+        run: |
+          uname -a
+          nproc
+          free -h
+          df -h / "$RUNNER_TEMP"
+          docker version --format '{{.Server.Version}} {{.Server.Arch}}'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.recovery.outputs.artifact }}
