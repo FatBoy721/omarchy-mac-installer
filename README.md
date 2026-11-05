@@ -2,7 +2,7 @@
 
 A macOS app that installs [Omarchy](https://github.com/omacom/omarchy) on an Apple Silicon Mac, next to macOS. The app is named **Omarchy Installer** and uses the `org.omarchy.installer` identifiers (`Packaging/identity.conf`). It was extracted from [maralcbr/omarchy-mx-mac](https://github.com/maralcbr/omarchy-mx-mac) into [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer); the Git history and attribution are preserved (see [extraction provenance](docs/extraction.md)).
 
-Status: every published installer release is a GitHub pre-release; the newest `Omarchy Installer <version>` on the [releases page](https://github.com/omacom/omarchy-mac-installer/releases) is the current notarized app. Since installer 2.3.14 the app opens on the stable channel by default, which offers Omarchy 4.5. See [Release channels](#release-channels).
+Status: every published installer release is a GitHub pre-release; the current notarized app is [Omarchy Installer 2.3.15](https://github.com/omacom/omarchy-mac-installer/releases/tag/v2.3.15); newer ones appear on the [releases page](https://github.com/omacom/omarchy-mac-installer/releases). Since installer 2.3.14 the app opens on the stable channel by default, which offers Omarchy 4.5. See [Release channels](#release-channels).
 
 Installing Omarchy changes the partition layout of your Mac's internal disk and its boot policy. Read [Before you install](#before-you-install) first.
 
@@ -65,7 +65,7 @@ This installs **Omarchy Installer** into `/Applications` and opens it; continue 
 
 To install from the disk image instead:
 
-1. Download `Omarchy-Mac-Installer-<version>.dmg` and `Omarchy-Mac-Installer-<version>.dmg.sha256` from the [releases page](https://github.com/omacom/omarchy-mac-installer/releases). The newest installer release is the one named `Omarchy Installer <version>` (for example `v2.3.15`). Ignore the `catalog-*` and `engine-*` pre-releases: they hold data the app reads, not the app.
+1. Download [`Omarchy-Mac-Installer-2.3.15.dmg`](https://github.com/omacom/omarchy-mac-installer/releases/download/v2.3.15/Omarchy-Mac-Installer-2.3.15.dmg) and [`Omarchy-Mac-Installer-2.3.15.dmg.sha256`](https://github.com/omacom/omarchy-mac-installer/releases/download/v2.3.15/Omarchy-Mac-Installer-2.3.15.dmg.sha256) from the [2.3.15 release](https://github.com/omacom/omarchy-mac-installer/releases/tag/v2.3.15). If a newer `Omarchy Installer <version>` release is on the [releases page](https://github.com/omacom/omarchy-mac-installer/releases), use that instead. Ignore the `catalog-*` and `engine-*` pre-releases: they hold data the app reads, not the app.
 2. Check the download. From the folder that holds both files:
 
    ```sh
