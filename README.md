@@ -2,7 +2,7 @@
 
 A macOS app that installs [Omarchy](https://github.com/omacom/omarchy) on an Apple Silicon Mac, next to macOS. The app is named **Omarchy Installer** and uses the `org.omarchy.installer` identifiers (`Packaging/identity.conf`). It was extracted from [maralcbr/omarchy-mx-mac](https://github.com/maralcbr/omarchy-mx-mac) into [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer); the Git history and attribution are preserved (see [extraction provenance](docs/extraction.md)).
 
-Status: every published installer release is a GitHub pre-release. As of 2026-11-03 the latest is [2.3.13](https://github.com/omacom/omarchy-mac-installer/releases/tag/v2.3.13) (notarized app). The 2.3.13 release notes say no stable catalog is published yet, so the app opens on the release candidate (rc) channel by default. See [Release channels](#release-channels).
+Status: every published installer release is a GitHub pre-release; the current notarized app is [Omarchy Installer 2.3.15](https://github.com/omacom/omarchy-mac-installer/releases/tag/v2.3.15); newer ones appear on the [releases page](https://github.com/omacom/omarchy-mac-installer/releases). Since installer 2.3.14 the app opens on the stable channel by default, which offers Omarchy 4.5. See [Release channels](#release-channels).
 
 Installing Omarchy changes the partition layout of your Mac's internal disk and its boot policy. Read [Before you install](#before-you-install) first.
 
@@ -55,14 +55,24 @@ Why a catalog check exists: `make-unsigned-catalog.py` refuses inputs that miss,
 
 ## Install
 
-1. Download `Omarchy-Mac-Installer-<version>.dmg` and `Omarchy-Mac-Installer-<version>.dmg.sha256` from the [releases page](https://github.com/omacom/omarchy-mac-installer/releases). The newest installer release is the one named `Omarchy Installer <version>` (for example `v2.3.13`). Ignore the `catalog-*` and `engine-*` pre-releases: they hold data the app reads, not the app.
+The simplest way is [Homebrew](https://brew.sh):
+
+```sh
+brew install omacom/mac/omarchy
+```
+
+This installs **Omarchy Installer** into `/Applications` and opens it; continue at step 4 below. Homebrew prints a deprecation warning about `postflight`, which is expected. The [omacom/homebrew-mac](https://github.com/omacom/homebrew-mac) tap picks up new installer releases automatically.
+
+To install from the disk image instead:
+
+1. Download [`Omarchy-Mac-Installer-2.3.15.dmg`](https://github.com/omacom/omarchy-mac-installer/releases/download/v2.3.15/Omarchy-Mac-Installer-2.3.15.dmg) and [`Omarchy-Mac-Installer-2.3.15.dmg.sha256`](https://github.com/omacom/omarchy-mac-installer/releases/download/v2.3.15/Omarchy-Mac-Installer-2.3.15.dmg.sha256) from the [2.3.15 release](https://github.com/omacom/omarchy-mac-installer/releases/tag/v2.3.15). If a newer `Omarchy Installer <version>` release is on the [releases page](https://github.com/omacom/omarchy-mac-installer/releases), use that instead. Ignore the `catalog-*` and `engine-*` pre-releases: they hold data the app reads, not the app.
 2. Check the download. From the folder that holds both files:
 
    ```sh
-   shasum -a 256 -c Omarchy-Mac-Installer-2.3.13.dmg.sha256
+   shasum -a 256 -c Omarchy-Mac-Installer-2.3.15.dmg.sha256
    ```
 
-   The 2.3.13 release notes also give the digest `71f0a5ef4e7aa9b1da7ea88ed7641dfd087344d3fbb29fa2bb58192999b12910`.
+   Each release's notes also give the digest; for 2.3.15 it is `a6ee0cc214fff9f9d194772a5b4492c055c8f74d8572c1183874449d445f3d11`.
 3. Open the disk image and move **Omarchy Installer** to `/Applications`. The disk image holds the app and an `/Applications` link.
 4. Open the app. It checks the Mac model, macOS version, power, FileVault and free disk space, then shows the plan. Choose the disk size, tick the backup box, click **Install**, and enter your macOS administrator account and password when asked. Allow the app to add its helper if macOS asks. The helper shows up under Login Items in System Settings.
 5. Keep the Mac awake and plugged in until the app says the first stage is done. Then follow the on-screen **Finish setup** steps in Recovery (see [What the installer does](#what-the-installer-does)).
@@ -77,13 +87,13 @@ The app can read one of three catalogs, all signed with the Omacom catalog key a
 
 | Channel | Catalog | Use |
 | --- | --- | --- |
-| Stable | `catalog-stable.signed.json` | No stable Mac catalog is published yet as of the 2.3.13 release notes, so the menu shows "Couldn't load". |
-| Release candidate (rc) | `catalog-rc.signed.json` | The default since installer 2.3.13 ([#159](https://github.com/omacom/omarchy-mac-installer/pull/159)). The 2.3.13 notes say the rc catalog is `omarchy-mac-4.5.0-rc3-r1`, published 2026-11-02. |
+| Stable | `catalog-stable.signed.json` | The default since installer 2.3.14 ([#169](https://github.com/omacom/omarchy-mac-installer/pull/169)). Offers Omarchy 4.5. |
+| Release candidate (rc) | `catalog-rc.signed.json` | Release candidates before they reach stable. Was the default in installer 2.3.13 ([#159](https://github.com/omacom/omarchy-mac-installer/pull/159)). |
 | Edge | `catalog-edge.signed.json` | Where the M3 Macs and the MacBook Neo are qualified on real hardware (see [Supported Macs](#supported-macs)). |
 
 The channels match Omarchy's. Dev is a developer choice made after installation, not an installer channel.
 
-To switch channel, open the **Release channel** menu in the menu bar and pick one. Entries read "Couldn't load", "No Mac release yet", "Couldn't verify" or "Not available for this Mac" when that channel cannot be used right now; **Check Channels Again** re-reads them. The choice lives in memory only: every launch opens on the default (rc), and a choice never persists to another run. The menu locks once preparation, authorization or installation has started, so a plan made against one channel is never installed from another. The three catalog addresses are baked into the signed app; the menu cannot point at a source the app was not built to trust. Developer and private-test builds hide this menu.
+To switch channel, open the **Release channel** menu in the menu bar and pick one. Entries read "Couldn't load", "No Mac release yet", "Couldn't verify" or "Not available for this Mac" when that channel cannot be used right now; **Check Channels Again** re-reads them. The choice lives in memory only: every launch opens on the default (stable), and a choice never persists to another run. The menu locks once preparation, authorization or installation has started, so a plan made against one channel is never installed from another. The three catalog addresses are baked into the signed app; the menu cannot point at a source the app was not built to trust. Developer and private-test builds hide this menu.
 
 ## What the installer does
 
@@ -100,13 +110,15 @@ The helper is a root launchd daemon registered through `SMJobBless`; the app and
 
 ## Update, remove and recover
 
-**Update the installer app.** Download the newer dmg from the releases page and replace the app in `/Applications`. A catalog can set a minimum app version; an older app is told to update (the app has a **Download the installer** action).
+**Update the installer app.** If you installed with Homebrew, run `brew upgrade omarchy`. Otherwise download the newer dmg from the releases page and replace the app in `/Applications`. A catalog can set a minimum app version; an older app is told to update (the app has a **Download the installer** action).
 
 **Update Omarchy after installing.** This repository does not cover it. See [Omarchy's manual](https://omarchy.org/manual/) and the [Mac manual](https://github.com/omacom/omarchy-mac-pkgs/tree/main/mac-manual).
 
 **Reinstall.** If Omarchy is already installed, the app detects it and removes the previous installation as the first phase of a new install. Use that only with a current backup.
 
 **Remove Omarchy.** Choose **Installation → Remove Omarchy…** while no install or download runs. The app shows the space that returns to macOS and requires you to type the phrase `delete omarchy installation and data`, plus a macOS administrator account and password. Removal deletes the Omarchy partitions and grows the macOS container back over them. It refuses a layout it does not recognize (unknown or partial installations, external boot, more than one APFS store, mismatched names or UUIDs, and `apple,j614s`) rather than guess. If the layout shows only unallocated space right after macOS, it offers **Free space only** to return it. Details and interruption rules: [`Development/Removal.md`](Development/Removal.md). That document says physical removal had not been executed when it was written.
+
+If you installed the app with Homebrew, `brew uninstall --zap omarchy` removes the app, its helper and its support files. It does not remove Omarchy from the disk: use **Remove Omarchy…** in the app first.
 
 If a removal record is unfinished, the app will not install or remove again until it is resolved. Never delete or edit that record to get around the block: compare its partition UUIDs with the real layout first. A failed resize can leave all Omarchy partitions removed and the space unallocated. Do not repeat the deletion. The helper keeps its records in `/var/db/org.omarchy.installer`.
 
