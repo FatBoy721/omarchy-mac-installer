@@ -81,6 +81,9 @@ def app_inventory(app):
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise RecoveryError("native Recovery app contains a non-regular entry")
         if path.is_file():
+            # macOS writes AppleDouble metadata beside payload files on FAT.
+            if path.name.startswith("._"):
+                continue
             data = path.read_bytes()
             files[path.relative_to(app).as_posix()] = {
                 "sha256": digest(data), "bytes": len(data),
@@ -389,7 +392,7 @@ def stage(installer, esp_uuid, esp_root, app_source=None,
         with tempfile.TemporaryDirectory(prefix=".omarchy-recovery-stage-", dir=system) as temporary:
             app = Path(temporary) / APP_NAME
             if not destination.exists():
-                shutil.copytree(app_source, app)
+                shutil.copytree(app_source, app, ignore=shutil.ignore_patterns("._*"))
                 (app / "Contents/MacOS/OmarchyRecovery").chmod(0o755)
                 _verify_staged_app(app, template, run)
                 _flush_tree(app)

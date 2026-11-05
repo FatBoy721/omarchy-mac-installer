@@ -80,6 +80,10 @@ class RecoveryTests(unittest.TestCase):
     def repin(self):
         self.manifest.write_text(json.dumps(recovery.app_inventory(self.app)))
 
+    def add_appledouble_metadata(self):
+        for path in list(self.app.rglob("*")):
+            path.with_name("._" + path.name).write_bytes(b"AppleDouble metadata")
+
     def fake_run(self, command, **kwargs):
         self.commands.append(command)
         self.assertTrue(kwargs["check"])
@@ -108,6 +112,29 @@ class RecoveryTests(unittest.TestCase):
         self.binary.write_bytes(b"changed")
         with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "checksum"):
             recovery.validate_payload(package)
+
+    def test_payload_preflight_still_rejects_unlisted_metadata(self):
+        self.add_appledouble_metadata()
+        with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "files differ"):
+            recovery.validate_payload(package)
+
+    def test_stage_ignores_appledouble_metadata_but_checks_payload(self):
+        expected = recovery.app_inventory(self.app)
+        self.add_appledouble_metadata()
+        self.stage()
+        app = self.system / recovery.APP_NAME
+        self.assertEqual(recovery.app_inventory(app), expected)
+        self.assertFalse(any(path.name.startswith("._") for path in app.rglob("*")))
+        self.assertEqual(plistlib.loads(self.marker.read_bytes())["AppName"], recovery.APP_NAME)
+        self.binary.write_bytes(b"tampered")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its engine manifest"):
+            self.stage()
+
+    def test_stage_rejects_unlisted_ordinary_file(self):
+        (self.resources / "unexpected.txt").write_bytes(b"not in the manifest")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its engine manifest"):
+            self.stage()
+        self.assertFalse((self.system / recovery.APP_NAME).exists())
 
     def test_old_or_unknown_data_layout_is_rejected_before_staging(self):
         for layout in [None, "embedded-resources"]:
@@ -189,11 +216,26 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(recovery.app_inventory(target), signed_template)
         self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp)), expected)
 
+        self.add_appledouble_metadata()
+
+        def verify(command, **kwargs):
+            # The source is on FAT in production, where codesign accepts the
+            # sidecars. Verify the copied APFS app with native codesign here.
+            if command[-1] == str(self.app):
+                return self.fake_run(command, **kwargs)
+            return subprocess.run(command, **kwargs)
+
+        shutil.rmtree(target)
+        self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp), run=verify), expected)
+        self.assertEqual(self.binary.read_bytes(), executable.read_bytes())
+        self.assertEqual(recovery.app_inventory(target), signed_template)
+        self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp), run=verify), expected)
+
         source.write_text("int main(void) { return 1; }\n")
         subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(executable)], check=True)
         subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(target)], check=True)
         with self.assertRaisesRegex(recovery.RecoveryError, "differs from its template"):
-            recovery.stage(self.installer, ESP, str(self.esp))
+            recovery.stage(self.installer, ESP, str(self.esp), run=verify)
 
     def test_interrupted_marker_publication_restores_launcher_and_resumes(self):
         before_marker = self.marker.read_bytes()
@@ -312,9 +354,12 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.step2.read_text(), "old launcher")
 
     def test_source_symlink_rejected(self):
-        (self.resources / "link").symlink_to(self.info)
-        with self.assertRaisesRegex(recovery.RecoveryError, "non-regular"):
-            recovery.app_inventory(self.app)
+        for name in ("link", "._Info.plist"):
+            link = self.resources / name
+            link.symlink_to(self.info)
+            with self.subTest(name=name), self.assertRaisesRegex(recovery.RecoveryError, "non-regular"):
+                recovery.app_inventory(self.app)
+            link.unlink()
 
     def test_required_firmware_missing_empty_or_oversized_is_rejected(self):
         for name in recovery.VENDOR_FIRMWARE:
