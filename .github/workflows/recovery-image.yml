@@ -32,6 +32,10 @@ jobs:
   image:
     name: Check real edge channel inputs, optionally build
     needs: recovery
+    if: >-
+      github.repository == 'omacom/omarchy-mac-installer' &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_target'
     # Namespace's bleeding-edge kernel, as mac-image.yml: a full build needs FAT.
     runs-on: namespace-profile-arm64-linux-apple-12x32;kernel.release-channel=bleeding-edge
     timeout-minutes: 90
