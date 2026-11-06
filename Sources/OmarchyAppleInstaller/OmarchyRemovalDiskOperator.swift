@@ -91,7 +91,10 @@
       }
     }
 
-    enum ProtectedFile { case read(Data), absent, unsuitable }
+    enum ProtectedFile {
+      case read(Data)
+      case absent, unsuitable
+    }
 
     private static func read(_ name: String, in folder: Int32, owner: uid_t, limit: Int)
       -> ProtectedFile

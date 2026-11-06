@@ -257,9 +257,11 @@
             start + length <= plan.offset + plan.length,
             !recorded.contains(where: { $0.uuid == id.uuidString })
           else { return nil }
-          recorded.append(RemovalRecordedPartition(uuid: id.uuidString, offset: start, size: length))
+          recorded.append(
+            RemovalRecordedPartition(uuid: id.uuidString, offset: start, size: length))
         }
-        guard recorded[0] == RemovalRecordedPartition(uuid: uuid.uuidString, offset: offset, size: size)
+        guard
+          recorded[0] == RemovalRecordedPartition(uuid: uuid.uuidString, offset: offset, size: size)
         else { return nil }
         partitions = recorded
       }

@@ -168,7 +168,8 @@
 
     func testARealEngineJournalParses() throws {
       let record = try XCTUnwrap(
-        RemovalInterruptedInstall.parse(transcript: Data(Self.m2Journal.utf8), target: Self.m2Target))
+        RemovalInterruptedInstall.parse(
+          transcript: Data(Self.m2Journal.utf8), target: Self.m2Target))
       XCTAssertEqual(record.stubUUID, "D8E7A578-1EAA-4D33-B70B-186780564762")
       XCTAssertEqual(record.stubOffset, 627_187_052_544)
       XCTAssertEqual(record.stubSize, 2_499_805_184)
@@ -237,7 +238,8 @@
       XCTAssertNil(moved.parsed)
       // A boolean where a size belongs.
       let boolean = String(decoding: journal.transcript, as: UTF8.self)
-        .replacingOccurrences(of: "\"length_bytes\":\(journal.planLength)", with: "\"length_bytes\":true")
+        .replacingOccurrences(
+          of: "\"length_bytes\":\(journal.planLength)", with: "\"length_bytes\":true")
       XCTAssertNil(
         RemovalInterruptedInstall.parse(transcript: Data(boolean.utf8), target: journal.target))
     }
@@ -262,9 +264,10 @@
     func testTheJournalNeverOverridesARecordOnTheESP() throws {
       // One record present: the strict checks of that record apply, as before.
       let disk = strandedDisk([try XCTUnwrap(journal().parsed)])
-      disk.files?.installerLog = RemovalFixtures.files(
-        for: F.convergedInstall, in: F.converged()
-      ).installerLog
+      disk.files?.installerLog =
+        RemovalFixtures.files(
+          for: F.convergedInstall, in: F.converged()
+        ).installerLog
       assertRefusal(disk, "its EFI partition has no readable asahi/stub_info.json")
     }
 
@@ -328,14 +331,17 @@
       let plan = try OmarchyRemovalPlan(disks: disk)
       XCTAssertEqual(plan.members.map(\.uuid), Self.members.map(\.uuid))
       XCTAssertTrue(
-        plan.ticket(id: UUID()).notes.contains { $0.hasPrefix("An earlier install stopped partway") })
+        plan.ticket(id: UUID()).notes.contains {
+          $0.hasPrefix("An earlier install stopped partway")
+        })
       try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in }
       XCTAssertFalse(disk.operations.isEmpty)
     }
 
     func testAReceiptCoversEitherMissingRecord() throws {
       let disk = strandedDisk([try XCTUnwrap(receiptJournal().parsed)])
-      disk.files?.stubInfo = RemovalFixtures.files(for: F.convergedInstall, in: F.converged())
+      disk.files?.stubInfo =
+        RemovalFixtures.files(for: F.convergedInstall, in: F.converged())
         .stubInfo
       XCTAssertNoThrow(try OmarchyRemovalPlan(disks: disk))
     }
@@ -377,8 +383,11 @@
       modern.engine = Self.receiptEngine
       let record = try XCTUnwrap(modern.parsed)
       XCTAssertFalse(record.predatesPartitionReceipts)
-      assertRefusal(strandedDisk([record]), "its EFI partition has no readable asahi/stub_info.json")
-      for legacy in [Self.legacyEngine, "v0.9.2-omarchy.28", "v0.9.2-omarchy.20261105.0123456789ab"] {
+      assertRefusal(
+        strandedDisk([record]), "its EFI partition has no readable asahi/stub_info.json")
+      for legacy in [
+        Self.legacyEngine, "v0.9.2-omarchy.28", "v0.9.2-omarchy.20261105.0123456789ab",
+      ] {
         var old = journal()
         old.engine = legacy
         XCTAssertTrue(try XCTUnwrap(old.parsed).predatesPartitionReceipts, legacy)
