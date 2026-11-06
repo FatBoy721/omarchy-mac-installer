@@ -8,7 +8,22 @@
   final class OmarchyRemovalInterruptedInstallTests: XCTestCase {
     typealias F = RemovalFixtures
 
-    static let planDigest = "sha256:" + String(repeating: "ab", count: 32)
+    static let planDigest = String(repeating: "ab", count: 32)
+
+    /// The M2 lab Mac's install journal of 2026-11-05 as it stood when
+    /// stub_and_esp began, and its apfs-target-prepared evidence, verbatim.
+    static let m2Journal = #"""
+      {"payload":{"device_identifier":"apple,j416c","support":"supported"},"schema_version":1,"sequence":1,"type":"inspection"}
+      {"payload":{"candidates":[{"kind":"resize","length_bytes":994662584320,"minimum_container_bytes":320952336384,"minimum_install_bytes":39531315200,"offset_bytes":524312576,"recommended_container_bytes":320952336384,"recommended_install_bytes":76562825216,"source_identifier":"disk0s2"}],"layout_digest":"sha256:45772bb3571562eea859a31406a494f4e1dcfc85928097af5e78e880ce94f7f0","system_store_identifier":"disk0"},"schema_version":1,"sequence":2,"type":"inventory"}
+      {"payload":{"candidate_kind":"resize","device_identifier":"apple,j416c","engine_digest":"sha256:5fea6b561e6fb82260f573bae099c70ba2e9998df56d38cf285987432320d4b5","engine_version":"v0.9.2-omarchy.20261022.31425f17fb9b","layout_digest":"sha256:45772bb3571562eea859a31406a494f4e1dcfc85928097af5e78e880ce94f7f0","length_bytes":367999844352,"metadata_digest":"sha256:99b730daee51eb1acb385be0b73fe25c51b3aa1e7d33e7be6e13a66c25122f42","offset_bytes":627187052544,"payload_digest":"sha256:ad6f83c99488688dcbb7b00935a018256aeb24240d6b9a40d9efa0ffc72316ad","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"],"source_identifier":"disk0s2","store_identifier":"disk0"},"schema_version":1,"sequence":3,"type":"plan"}
+      {"payload":{"name":"apfs_preparation_started","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8"},"schema_version":1,"sequence":4,"type":"event"}
+      {"payload":{"evidence_digest":"sha256:82b7cabca5d6eab8ba059c05472601cbf4b0b1f906c70de7f133f55e84fdc2f6","identifier":"apfs-target-prepared","phase":"apfs_preparation","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8"},"schema_version":1,"sequence":5,"type":"checkpoint"}
+      {"payload":{"name":"stub_and_esp_started","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8"},"schema_version":1,"sequence":6,"type":"event"}
+
+      """#
+    static let m2Target = Data(
+      #"{"offset_bytes":627187052544,"partition_identifier":"disk0s3","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8","size_bytes":2499805184,"uuid":"D8E7A578-1EAA-4D33-B70B-186780564762"}"#
+        .utf8)
 
     struct Journal {
       var planOffset: UInt64
@@ -111,6 +126,33 @@
       XCTAssertEqual(record.planOffset, journal.planOffset)
       XCTAssertEqual(record.planLength, journal.planLength)
       XCTAssertEqual(record.journal, SHA256Digest(hashing: journal.transcript))
+    }
+
+    func testARealEngineJournalParses() throws {
+      let record = try XCTUnwrap(
+        RemovalInterruptedInstall.parse(transcript: Data(Self.m2Journal.utf8), target: Self.m2Target))
+      XCTAssertEqual(record.stubUUID, "D8E7A578-1EAA-4D33-B70B-186780564762")
+      XCTAssertEqual(record.stubOffset, 627_187_052_544)
+      XCTAssertEqual(record.stubSize, 2_499_805_184)
+      XCTAssertEqual(record.planOffset, 627_187_052_544)
+      XCTAssertEqual(record.planLength, 367_999_844_352)
+      // A "sha256:"-prefixed plan digest is not what the engine writes.
+      let prefixed = Self.m2Journal.replacingOccurrences(
+        of: #""plan_digest":"b68f"#, with: #""plan_digest":"sha256:b68f"#)
+      XCTAssertNil(
+        RemovalInterruptedInstall.parse(transcript: Data(prefixed.utf8), target: Self.m2Target))
+    }
+
+    func testEvidenceDoesNotDependOnTheOrderJournalsAreListed() throws {
+      let first = try XCTUnwrap(journal().parsed)
+      var other = journal()
+      other.stubUUID = F.id(901)
+      let second = try XCTUnwrap(other.parsed)
+      var files = RemovalFixtures.files(for: F.convergedInstall, in: F.converged())
+      files.interruptedInstalls = [first, second]
+      let listed = RemovalEvidence(files: files)
+      files.interruptedInstalls = [second, first]
+      XCTAssertEqual(RemovalEvidence(files: files), listed)
     }
 
     func testOnlyAnInstallThatStoppedInStubAndESPParses() {

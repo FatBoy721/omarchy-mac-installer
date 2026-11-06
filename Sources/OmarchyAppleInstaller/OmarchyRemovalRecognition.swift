@@ -168,8 +168,9 @@
         case (0, "inspection"), (1, "inventory"):
           continue
         case (2, "plan"):
+          // The engine writes the plan digest as bare hex, unlike evidence digests.
           guard let digest = payload["plan_digest"] as? String,
-            SHA256Digest(rawValue: digest) != nil,
+            SHA256Digest(hexadecimal: digest) != nil,
             let offset = uint64(payload["offset_bytes"]),
             let length = uint64(payload["length_bytes"]), length > 0,
             !offset.addingReportingOverflow(length).overflow
@@ -253,7 +254,11 @@
       stubHasM1n1 =
         files.stubBootObject.map { $0.range(of: Data("##m1n1_ver##".utf8)) != nil } ?? false
       stubEFIPartitions = files.stubBootObject.flatMap(Self.efiPartitions(bootObject:))
-      interruptedInstalls = files.interruptedInstalls.isEmpty ? nil : files.interruptedInstalls
+      // Sorted: the same journals must compare equal however a directory lists them.
+      let interrupted = files.interruptedInstalls.sorted {
+        $0.journal.rawValue < $1.journal.rawValue
+      }
+      interruptedInstalls = interrupted.isEmpty ? nil : interrupted
     }
 
     /// nil when every check passes; otherwise the first check that failed, as a phrase.
