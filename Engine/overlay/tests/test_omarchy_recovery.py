@@ -311,6 +311,37 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.marker.read_bytes(), marker)
         self.assertEqual(self.step2.read_text(), "old launcher")
 
+    def add_fat_sidecars(self):
+        """Mimic macOS writing xattrs to FAT: one "._" file per entry."""
+        header = recovery.APPLEDOUBLE_MAGIC + b"\x00\x02\x00\x00Mac OS X        "
+        sidecars = []
+        for path in [self.app, *self.app.rglob("*")]:
+            sidecar = path.with_name("._" + path.name)
+            sidecar.write_bytes(header.ljust(4096, b"\x00"))
+            sidecars.append(sidecar)
+        return sidecars
+
+    def test_fat_appledouble_sidecars_are_not_part_of_the_app(self):
+        clean = recovery.app_inventory(self.app)
+        self.add_fat_sidecars()
+        self.assertEqual(recovery.app_inventory(self.app), clean)
+        self.stage()
+        staged = self.system / recovery.APP_NAME
+        self.assertEqual(recovery.app_inventory(staged), clean)
+        self.assertEqual([p for p in staged.rglob("*") if p.name.startswith("._")], [])
+
+    def test_unexpected_dot_underscore_files_still_differ(self):
+        # Not AppleDouble: an added file merely named like a sidecar.
+        (self.resources / "._en.lproj").write_bytes(b"not appledouble")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs"):
+            self.stage()
+        (self.resources / "._en.lproj").unlink()
+        # AppleDouble header but no companion entry: also an added file.
+        (self.resources / "._orphan").write_bytes(recovery.APPLEDOUBLE_MAGIC + b"\x00" * 60)
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs"):
+            self.stage()
+        self.assertFalse((self.system / recovery.APP_NAME).exists())
+
     def test_source_symlink_rejected(self):
         (self.resources / "link").symlink_to(self.info)
         with self.assertRaisesRegex(recovery.RecoveryError, "non-regular"):
