@@ -85,7 +85,13 @@ def is_appledouble_sidecar(path):
         return False
     if path.is_symlink() or not path.is_file():
         return False
-    companion = path.with_name(path.name[2:])
+    # "._." holds the attributes of its own directory (FAT volume roots).
+    if path.name == "._.":
+        companion = path.parent
+    elif path.name == "._..":
+        return False
+    else:
+        companion = path.with_name(path.name[2:])
     if not os.path.lexists(companion):
         return False
     try:

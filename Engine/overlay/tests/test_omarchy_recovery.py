@@ -515,5 +515,65 @@ class SourceSystemTests(unittest.TestCase):
             self.resolve()
 
 
+@unittest.skipUnless(
+    sys.platform == "darwin" and shutil.which("hdiutil") and shutil.which("xattr"),
+    "needs macOS to write AppleDouble files on a real FAT32 volume",
+)
+class FATVolumeRecoveryTests(unittest.TestCase):
+    """The Recovery template on a real FAT32 volume, where macOS stores every
+    extended attribute (as com.apple.provenance) in a "._" AppleDouble file."""
+
+    fake_run = RecoveryTests.fake_run
+    stage = RecoveryTests.stage
+    repin = RecoveryTests.repin
+
+    def setUp(self):
+        RecoveryTests.setUp(self)
+        image = self.root / "esp.dmg"
+        subprocess.run(
+            ["hdiutil", "create", "-quiet", "-size", "40m", "-fs", "MS-DOS FAT32",
+             "-volname", "OMTEST", str(image)], check=True)
+        mount = self.root / "mount"
+        mount.mkdir()
+        subprocess.run(
+            ["hdiutil", "attach", "-quiet", "-nobrowse", "-mountpoint", str(mount), str(image)],
+            check=True)
+        self.addCleanup(subprocess.run, ["hdiutil", "detach", "-force", "-quiet", str(mount)])
+        shutil.copytree(self.esp, mount, dirs_exist_ok=True)
+        info = self.infos.pop(str(self.esp))
+        self.esp = mount
+        self.infos[str(mount)] = dict(info, MountPoint=str(mount))
+        self.template = mount / recovery.PAYLOAD_DIRECTORY
+        self.app = self.template / recovery.APP_NAME
+        self.binary = self.app / "Contents/MacOS/OmarchyRecovery"
+        self.manifest = self.template / recovery.MANIFEST_NAME
+        # Copying may already have added com.apple.provenance; an explicit
+        # attribute makes sure every entry gets its sidecar on any host.
+        entries = [self.app, *(p for p in self.app.rglob("*") if not p.name.startswith("._"))]
+        for path in entries:
+            subprocess.run(["xattr", "-w", "org.omarchy.test", "1", str(path)], check=True)
+
+    def sidecars(self, root):
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("._*"))
+
+    def test_stage_accepts_the_template_macos_annotated_on_fat(self):
+        sidecars = self.sidecars(self.app)
+        self.assertIn("Contents/MacOS/._OmarchyRecovery", sidecars)
+        self.assertTrue(all(
+            (self.app / name).read_bytes()[:4] == recovery.APPLEDOUBLE_MAGIC for name in sidecars))
+        manifest = json.loads(self.manifest.read_text())
+        self.assertEqual(recovery.app_inventory(self.app), manifest)
+        self.stage()
+        staged = self.system / recovery.APP_NAME
+        self.assertEqual(recovery.app_inventory(staged), manifest)
+        self.assertEqual(self.sidecars(staged), [])
+
+    def test_sidecar_cleanup_leaves_the_payload_and_unrelated_files(self):
+        (self.esp / "._unrelated").write_bytes(b"not appledouble")
+        recovery.remove_appledouble_sidecars(self.esp)
+        self.assertEqual(self.sidecars(self.esp), ["._unrelated"])
+        self.assertEqual(recovery.app_inventory(self.app), json.loads(self.manifest.read_text()))
+
+
 if __name__ == "__main__":
     unittest.main()
