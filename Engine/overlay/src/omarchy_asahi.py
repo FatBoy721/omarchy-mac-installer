@@ -1515,6 +1515,9 @@ class AsahiStage1Adapter:
             self.installer.dutil.mount(self.osins.efi_part.name),
             common_allowed=self.common_stage1,
         )
+        # Removal recognises an installation by these ESP records, so write
+        # them before any later step can fail, and again once it is complete.
+        self._record_installation()
         if self.native_recovery_gui:
             omarchy_recovery.stage(
                 self.installer.ins, self.osins.efi_part.uuid,
@@ -1526,13 +1529,17 @@ class AsahiStage1Adapter:
                 authorized_owner=self.authorized_owner if self.use_helper_recovery else None,
                 expected_bootstrap=self.source_bootstrap if self.use_helper_recovery else None,
             )
-        for target in self.osins.idata_targets:
-            self.installer.ins.collect_installer_data(target)
-            shutil.copy(
-                "installer.log",
-                os.path.join(target, "installer.log"),
-            )
+        self._record_installation(log_only=True)
         return self._installed_evidence(plan)
+
+    def _record_installation(self, log_only=False):
+        for target in self.osins.idata_targets:
+            if not log_only:
+                self.installer.ins.collect_installer_data(target)
+            # Replace, never truncate, a record removal may already rely on.
+            log = os.path.join(target, "installer.log")
+            shutil.copy("installer.log", log + ".new")
+            os.replace(log + ".new", log)
 
     def validate_installed_checkpoint(
         self,

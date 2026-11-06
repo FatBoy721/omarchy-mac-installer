@@ -89,6 +89,10 @@ class FakeStubInstaller:
         image.parent.mkdir(parents=True, exist_ok=True)
         image.write_bytes(b"plain recovery image")
 
+    def collect_installer_data(self, path):
+        self.calls.append(("collect_installer_data", path))
+        Path(path, "stub_info.json").write_text(json.dumps({"vgid": self.osi.vgid}))
+
     def prepare_for_bless(self):
         self.calls.append(("prepare_for_bless",))
 
@@ -283,6 +287,41 @@ class AsahiStage1AdapterTests(unittest.TestCase):
             adapter.install_stub_and_esp(self.plan)
         self.assertIsNone(stage.call_args.kwargs["app_source"])
         self.assertIsNone(stage.call_args.kwargs["manifest_path"])
+
+    def test_removal_records_precede_recovery_staging(self):
+        import omarchy_recovery
+        metadata = self._target_metadata()
+        metadata["recovery_gui"] = "omarchy-native-v1"
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        with patch("omarchy_asahi.omarchy_recovery.validate_payload"):
+            adapter.preflight(self.plan)
+        adapter.prepare_target(self.plan)
+        with tempfile.TemporaryDirectory() as work, tempfile.TemporaryDirectory() as esp_asahi:
+            adapter.osins.idata_targets = [esp_asahi]
+            previous = os.getcwd()
+            os.chdir(work)
+            try:
+                Path("installer.log").write_text("New partition: before staging\n")
+                with patch("omarchy_asahi.omarchy_recovery.stage") as stage:
+                    stage.side_effect = omarchy_recovery.RecoveryError("staging failed")
+                    with self.assertRaises(omarchy_recovery.RecoveryError):
+                        adapter.install_stub_and_esp(self.plan)
+                    self.assertEqual(
+                        json.loads(Path(esp_asahi, "stub_info.json").read_text()),
+                        {"vgid": installer.ins.osi.vgid})
+                    self.assertEqual(Path(esp_asahi, "installer.log").read_text(),
+                                     "New partition: before staging\n")
+
+                    # A successful staging refreshes the log with its own lines.
+                    stage.side_effect = None
+                    Path("installer.log").write_text("New partition: after staging\n")
+                    adapter.install_stub_and_esp(self.plan)
+                    self.assertEqual(Path(esp_asahi, "installer.log").read_text(),
+                                     "New partition: after staging\n")
+            finally:
+                os.chdir(previous)
 
     def test_invalid_helper_template_or_source_owner_stops_before_disk_calls(self):
         import omarchy_recovery
