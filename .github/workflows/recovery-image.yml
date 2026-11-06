@@ -24,6 +24,7 @@ defaults:
 jobs:
   recovery:
     name: Build the native Recovery image input
+    if: github.repository == 'omacom/omarchy-mac-installer'
     uses: ./.github/workflows/recovery-app.yml
     permissions:
       contents: read
@@ -31,7 +32,12 @@ jobs:
   image:
     name: Check real edge channel inputs, optionally build
     needs: recovery
-    runs-on: ubuntu-24.04-arm
+    if: >-
+      github.repository == 'omacom/omarchy-mac-installer' &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_target'
+    # Namespace's bleeding-edge kernel, as mac-image.yml: a full build needs FAT.
+    runs-on: namespace-profile-arm64-linux-apple-12x32;kernel.release-channel=bleeding-edge
     timeout-minutes: 90
     env:
       BUILD_IMAGE: ${{ inputs.build-image }}
@@ -42,6 +48,13 @@ jobs:
           persist-credentials: false
       - name: Set the work directory
         run: echo "WORK=$RUNNER_TEMP/recovery-image" >>"$GITHUB_ENV"
+      - name: Record the host
+        run: |
+          uname -a
+          nproc
+          free -h
+          df -h / "$RUNNER_TEMP"
+          docker version --format '{{.Server.Version}} {{.Server.Arch}}'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.recovery.outputs.artifact }}
@@ -69,7 +82,12 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$WORK/out"
           python3 image-builder/bin/mac-image-check provenance edge "$WORK/out"
           python3 image-builder/bin/mac-image-check descriptor edge "$WORK/out"
-          sudo python3 image-builder/bin/mac-release-guard build "$WORK/out" 2>&1 | tee "$WORK/evidence/release-guard.log"
+          # The guard loop-mounts root.img and boot.img. The runner has no loop
+          # devices, so it runs in a privileged container, as in mac-image.yml.
+          sudo docker run --rm --privileged -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" -v "$WORK:$WORK" -v /guard \
+            -e TMPDIR=/guard -w "$GITHUB_WORKSPACE" ubuntu@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac \
+            bash -c 'apt-get update -qq && apt-get install --yes -qq --no-install-recommends python3 libarchive-tools btrfs-progs >/dev/null &&
+              python3 image-builder/bin/mac-release-guard build "$1"' guard "$WORK/out" 2>&1 | tee "$WORK/evidence/release-guard.log"
       - name: Save qualification artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
