@@ -81,6 +81,9 @@ def run_stage1(plan, journal, adapter):
     # explicit mode, so the standard umask is right for everything else.
     os.umask(0o022)
 
+    if callable(getattr(type(adapter), "bind_receipts", None)):
+        adapter.bind_receipts(journal.store_receipt)
+
     for stage in stages_for(plan):
         if stage.checkpoint_identifier in journal.checkpoints:
             continue

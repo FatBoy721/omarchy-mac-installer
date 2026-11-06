@@ -162,7 +162,10 @@
       self.credentialValidator = credentialValidator
       work = HelperWorkState()
       importer = EngineHandoffPackageImporter()
-      removalDisks = MacRemovalDiskOperator()
+      var disks = MacRemovalDiskOperator()
+      disks.installJournals = workingDirectory.appendingPathComponent(
+        "execution-journals", isDirectory: true)
+      removalDisks = disks
       removalAdminValidator = requireRemovalAdministrator
       espDisks = DiskutilInstallConfESPOperator()
       self.selfUninstaller = selfUninstaller

@@ -296,6 +296,48 @@ class Journal:
             raise ContractError("invalid checkpoint identifier")
         return f"{self.path}.{identifier}.evidence"
 
+    def store_receipt(self, name, data):
+        """Atomically record what a stage did before its checkpoint exists.
+
+        Receipts are not journal records, so resume and every checkpoint
+        consumer ignore them; removal reads them beside the journal.
+        """
+        self._require_open_plan()
+        if (
+            CHECKPOINT_IDENTIFIER.fullmatch(name or "") is None
+            or not isinstance(data, bytes)
+            or not data
+            or len(data) > MAX_CHECKPOINT_EVIDENCE_BYTES
+        ):
+            raise ContractError("invalid receipt")
+        path = f"{self.path}.{name}.receipt"
+        temporary = path + ".new"
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            written = 0
+            while written < len(data):
+                count = os.write(descriptor, data[written:])
+                if count <= 0:
+                    raise ContractError("short receipt write")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, path)
+        directory = os.open(os.path.dirname(path) or ".", os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
     def completion(self, outcome):
         if self.plan_payload is None:
             raise ContractError("plan is required")

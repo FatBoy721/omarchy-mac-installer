@@ -80,6 +80,12 @@ class RecoveryTests(unittest.TestCase):
     def repin(self):
         self.manifest.write_text(json.dumps(recovery.app_inventory(self.app)))
 
+    def add_appledouble_metadata(self):
+        """What macOS writes on FAT for an xattr: a "._" AppleDouble file per entry."""
+        header = recovery.APPLEDOUBLE_MAGIC + b"\x00\x02\x00\x00Mac OS X        "
+        for path in [self.app, *self.app.rglob("*")]:
+            path.with_name("._" + path.name).write_bytes(header.ljust(4096, b"\x00"))
+
     def fake_run(self, command, **kwargs):
         self.commands.append(command)
         self.assertTrue(kwargs["check"])
@@ -108,6 +114,30 @@ class RecoveryTests(unittest.TestCase):
         self.binary.write_bytes(b"changed")
         with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "checksum"):
             recovery.validate_payload(package)
+
+    def test_payload_preflight_still_rejects_unlisted_metadata(self):
+        self.add_appledouble_metadata()
+        with self.package() as package, self.assertRaisesRegex(recovery.RecoveryError, "files differ"):
+            recovery.validate_payload(package)
+
+    def test_stage_ignores_appledouble_metadata_but_checks_payload(self):
+        expected = recovery.app_inventory(self.app)
+        self.add_appledouble_metadata()
+        self.assertEqual(recovery.app_inventory(self.app), expected)
+        self.stage()
+        app = self.system / recovery.APP_NAME
+        self.assertEqual(recovery.app_inventory(app), expected)
+        self.assertFalse(any(path.name.startswith("._") for path in app.rglob("*")))
+        self.assertEqual(plistlib.loads(self.marker.read_bytes())["AppName"], recovery.APP_NAME)
+        self.binary.write_bytes(b"tampered")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its engine manifest"):
+            self.stage()
+
+    def test_stage_rejects_unlisted_ordinary_file(self):
+        (self.resources / "unexpected.txt").write_bytes(b"not in the manifest")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs from its engine manifest"):
+            self.stage()
+        self.assertFalse((self.system / recovery.APP_NAME).exists())
 
     def test_old_or_unknown_data_layout_is_rejected_before_staging(self):
         for layout in [None, "embedded-resources"]:
@@ -189,11 +219,26 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(recovery.app_inventory(target), signed_template)
         self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp)), expected)
 
+        self.add_appledouble_metadata()
+
+        def verify(command, **kwargs):
+            # The source is on FAT in production, where codesign accepts the
+            # sidecars. Verify the copied APFS app with native codesign here.
+            if command[-1] == str(self.app):
+                return self.fake_run(command, **kwargs)
+            return subprocess.run(command, **kwargs)
+
+        shutil.rmtree(target)
+        self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp), run=verify), expected)
+        self.assertEqual(self.binary.read_bytes(), executable.read_bytes())
+        self.assertEqual(recovery.app_inventory(target), signed_template)
+        self.assertEqual(recovery.stage(self.installer, ESP, str(self.esp), run=verify), expected)
+
         source.write_text("int main(void) { return 1; }\n")
         subprocess.run(["/usr/bin/xcrun", "clang", str(source), "-o", str(executable)], check=True)
         subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(target)], check=True)
         with self.assertRaisesRegex(recovery.RecoveryError, "differs from its template"):
-            recovery.stage(self.installer, ESP, str(self.esp))
+            recovery.stage(self.installer, ESP, str(self.esp), run=verify)
 
     def test_interrupted_marker_publication_restores_launcher_and_resumes(self):
         before_marker = self.marker.read_bytes()
@@ -311,10 +356,25 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.marker.read_bytes(), marker)
         self.assertEqual(self.step2.read_text(), "old launcher")
 
+    def test_unexpected_dot_underscore_files_still_differ(self):
+        # Not AppleDouble: an added file merely named like a sidecar.
+        (self.resources / "._en.lproj").write_bytes(b"not appledouble")
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs"):
+            self.stage()
+        (self.resources / "._en.lproj").unlink()
+        # AppleDouble header but no companion entry: also an added file.
+        (self.resources / "._orphan").write_bytes(recovery.APPLEDOUBLE_MAGIC + b"\x00" * 60)
+        with self.assertRaisesRegex(recovery.RecoveryError, "differs"):
+            self.stage()
+        self.assertFalse((self.system / recovery.APP_NAME).exists())
+
     def test_source_symlink_rejected(self):
-        (self.resources / "link").symlink_to(self.info)
-        with self.assertRaisesRegex(recovery.RecoveryError, "non-regular"):
-            recovery.app_inventory(self.app)
+        for name in ("link", "._Info.plist"):
+            link = self.resources / name
+            link.symlink_to(self.info)
+            with self.subTest(name=name), self.assertRaisesRegex(recovery.RecoveryError, "non-regular"):
+                recovery.app_inventory(self.app)
+            link.unlink()
 
     def test_required_firmware_missing_empty_or_oversized_is_rejected(self):
         for name in recovery.VENDOR_FIRMWARE:
@@ -453,6 +513,66 @@ class SourceSystemTests(unittest.TestCase):
         self.info["VolumeUUID"] = self.snapshot
         with self.assertRaisesRegex(recovery.RecoveryError, "identity changed"):
             self.resolve()
+
+
+@unittest.skipUnless(
+    sys.platform == "darwin" and shutil.which("hdiutil") and shutil.which("xattr"),
+    "needs macOS to write AppleDouble files on a real FAT32 volume",
+)
+class FATVolumeRecoveryTests(unittest.TestCase):
+    """The Recovery template on a real FAT32 volume, where macOS stores every
+    extended attribute (as com.apple.provenance) in a "._" AppleDouble file."""
+
+    fake_run = RecoveryTests.fake_run
+    stage = RecoveryTests.stage
+    repin = RecoveryTests.repin
+
+    def setUp(self):
+        RecoveryTests.setUp(self)
+        image = self.root / "esp.dmg"
+        subprocess.run(
+            ["hdiutil", "create", "-quiet", "-size", "40m", "-fs", "MS-DOS FAT32",
+             "-volname", "OMTEST", str(image)], check=True)
+        mount = self.root / "mount"
+        mount.mkdir()
+        subprocess.run(
+            ["hdiutil", "attach", "-quiet", "-nobrowse", "-mountpoint", str(mount), str(image)],
+            check=True)
+        self.addCleanup(subprocess.run, ["hdiutil", "detach", "-force", "-quiet", str(mount)])
+        shutil.copytree(self.esp, mount, dirs_exist_ok=True)
+        info = self.infos.pop(str(self.esp))
+        self.esp = mount
+        self.infos[str(mount)] = dict(info, MountPoint=str(mount))
+        self.template = mount / recovery.PAYLOAD_DIRECTORY
+        self.app = self.template / recovery.APP_NAME
+        self.binary = self.app / "Contents/MacOS/OmarchyRecovery"
+        self.manifest = self.template / recovery.MANIFEST_NAME
+        # Copying may already have added com.apple.provenance; an explicit
+        # attribute makes sure every entry gets its sidecar on any host.
+        entries = [self.app, *(p for p in self.app.rglob("*") if not p.name.startswith("._"))]
+        for path in entries:
+            subprocess.run(["xattr", "-w", "org.omarchy.test", "1", str(path)], check=True)
+
+    def sidecars(self, root):
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("._*"))
+
+    def test_stage_accepts_the_template_macos_annotated_on_fat(self):
+        sidecars = self.sidecars(self.app)
+        self.assertIn("Contents/MacOS/._OmarchyRecovery", sidecars)
+        self.assertTrue(all(
+            (self.app / name).read_bytes()[:4] == recovery.APPLEDOUBLE_MAGIC for name in sidecars))
+        manifest = json.loads(self.manifest.read_text())
+        self.assertEqual(recovery.app_inventory(self.app), manifest)
+        self.stage()
+        staged = self.system / recovery.APP_NAME
+        self.assertEqual(recovery.app_inventory(staged), manifest)
+        self.assertEqual(self.sidecars(staged), [])
+
+    def test_sidecar_cleanup_leaves_the_payload_and_unrelated_files(self):
+        (self.esp / "._unrelated").write_bytes(b"not appledouble")
+        recovery.remove_appledouble_sidecars(self.esp)
+        self.assertEqual(self.sidecars(self.esp), ["._unrelated"])
+        self.assertEqual(recovery.app_inventory(self.app), json.loads(self.manifest.read_text()))
 
 
 if __name__ == "__main__":

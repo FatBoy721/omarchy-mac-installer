@@ -85,13 +85,21 @@
     public private(set) var isExecutionInProgress = false
     public var canInspect: Bool { !isBusy && !isExecuting && !hasExecutionStarted }
     public var canChangeChannel: Bool {
-      recoveryAccount == nil && canOpenRemoval
+      recoveryAccount == nil && canInspect && !isEditingSize && credentialSheet.context == nil
     }
     /// An installation waiting for its Recovery step can still be removed:
-    /// that is the one the person may want gone.
+    /// that is the one the person may want gone. So can one whose run failed
+    /// after it changed the disk; the plan itself still can't run again.
     public var canOpenRemoval: Bool {
-      canInspect && !isEditingSize && credentialSheet.context == nil
+      (canInspect || failedRunMayBeRemoved) && !isEditingSize && credentialSheet.context == nil
     }
+    private var failedRunMayBeRemoved: Bool {
+      guard case .failed = phase, engineExitedAfterStarting else { return false }
+      return hasExecutionStarted && !isBusy && !isExecuting
+    }
+    /// The helper reported the engine's own failure, so it has exited. Lost
+    /// connections never set this: the engine may still be running.
+    private var engineExitedAfterStarting = false
     /// Recovery finished this installation; only the optional recovery
     /// account was skipped, so it is installed rather than waiting.
     public var recoveryAccountDeferred: Bool { recoveryAccount?.accountDeferred == true }
@@ -584,6 +592,8 @@
           return
         }
       }
+      // Every submission starts an engine that hasn't reported exiting yet.
+      engineExitedAfterStarting = false
 
       operationID = UUID()
       let currentOperation = operationID
@@ -739,6 +749,9 @@
         // credentials; any new attempt still needs a new reviewed plan.
         hasExecutionStarted = false
         refusedPlan = plan
+      }
+      if case .engineFailed = error as? EngineXPCSubmissionError {
+        engineExitedAfterStarting = true
       }
       beginInstallingIfNeeded()
       recoveryRetryAvailable = RecoveryAuthorizationRetryPolicy.isEligible(

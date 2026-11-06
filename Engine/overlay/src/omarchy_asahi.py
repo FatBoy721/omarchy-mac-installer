@@ -1244,6 +1244,7 @@ class AsahiStage1Adapter:
         self.osins = None
         self.os_firmware = None
         self.target_part = None
+        self.store_receipt = None
         self.preflight_complete = False
 
     def preflight(self, plan):
@@ -1488,6 +1489,7 @@ class AsahiStage1Adapter:
         self.installer.ins.install_files(self.installer.cur_os)
         os_size = plan.length_bytes - self.stub_size
         self.osins.partition_disk(self.target_part.name, os_size)
+        self._record_partitions(plan)
 
         firmware_package = None
         if self.osins.needs_firmware:
@@ -1515,6 +1517,10 @@ class AsahiStage1Adapter:
             self.installer.dutil.mount(self.osins.efi_part.name),
             common_allowed=self.common_stage1,
         )
+        # Removal recognises an installation by these ESP records, so write
+        # them before any later step can fail, and again once it is complete.
+        self._record_installation()
+        self._clean_esp()
         if self.native_recovery_gui:
             omarchy_recovery.stage(
                 self.installer.ins, self.osins.efi_part.uuid,
@@ -1526,13 +1532,58 @@ class AsahiStage1Adapter:
                 authorized_owner=self.authorized_owner if self.use_helper_recovery else None,
                 expected_bootstrap=self.source_bootstrap if self.use_helper_recovery else None,
             )
-        for target in self.osins.idata_targets:
-            self.installer.ins.collect_installer_data(target)
-            shutil.copy(
-                "installer.log",
-                os.path.join(target, "installer.log"),
-            )
+        self._record_installation(log_only=True)
+        self._clean_esp()
         return self._installed_evidence(plan)
+
+    def bind_receipts(self, store):
+        self.store_receipt = store
+
+    def _record_partitions(self, plan):
+        """Name every partition this install made, before writing into any.
+
+        Removal proves an install that stopped before its ESP records
+        existed by these exact identities, read from the helper's journal.
+        """
+        if self.store_receipt is None:
+            return
+        parts = [self.target_part, *self.osins.part_info]
+        receipt = {
+            "plan_digest": plan.plan_digest,
+            "partitions": [
+                {
+                    "uuid": str(part.uuid).upper(),
+                    "offset_bytes": part.offset,
+                    "size_bytes": part.size,
+                }
+                for part in parts
+            ],
+        }
+        self.store_receipt(
+            "partitions",
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        )
+
+    def _record_installation(self, log_only=False):
+        """Write the ESP records, each replaced whole, never left truncated."""
+        for target in self.osins.idata_targets:
+            if not log_only:
+                staging = os.path.join(target, ".omarchy-records")
+                shutil.rmtree(staging, ignore_errors=True)
+                os.mkdir(staging)
+                self.installer.ins.collect_installer_data(staging)
+                for name in sorted(os.listdir(staging)):
+                    if not name.startswith("._"):
+                        os.replace(os.path.join(staging, name), os.path.join(target, name))
+                shutil.rmtree(staging)
+            log = os.path.join(target, "installer.log")
+            shutil.copy("installer.log", log + ".new")
+            os.replace(log + ".new", log)
+
+    def _clean_esp(self):
+        omarchy_recovery.remove_appledouble_sidecars(
+            self.installer.dutil.mount(self.osins.efi_part.name)
+        )
 
     def validate_installed_checkpoint(
         self,

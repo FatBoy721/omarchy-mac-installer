@@ -36,6 +36,80 @@
     var openFAT:
       @Sendable (_ device: String, _ blockSize: Int, _ size: UInt64) throws ->
         any RemovalFileReading = { try RemovalFATVolume.rawDevice($0, blockSize: $1, size: $2) }
+    /// The helper's root-owned `execution-journals`; nil reads no install journal.
+    var installJournals: URL?
+    var readInterruptedInstalls: @Sendable (URL) -> [RemovalInterruptedInstall] =
+      Self.interruptedInstalls(in:)
+
+    /// Every journal there of an install that stopped before writing asahi/ on
+    /// its ESP. Unreadable or unsuitable records prove nothing and are skipped.
+    /// The directory and every file are opened without following links, and
+    /// files are named only relative to the directory that was checked.
+    static func interruptedInstalls(in directory: URL) -> [RemovalInterruptedInstall] {
+      interruptedInstalls(in: directory, owner: 0)
+    }
+
+    static func interruptedInstalls(in directory: URL, owner: uid_t)
+      -> [RemovalInterruptedInstall]
+    {
+      let folder = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+      guard folder >= 0 else { return [] }
+      defer { close(folder) }
+      var status = stat()
+      guard fstat(folder, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+        status.st_uid == owner, status.st_mode & 0o022 == 0
+      else { return [] }
+      let listing = dup(folder)
+      guard listing >= 0, let stream = fdopendir(listing) else {
+        if listing >= 0 { close(listing) }
+        return []
+      }
+      defer { closedir(stream) }
+      var journals = [String]()
+      while let entry = readdir(stream) {
+        let name = withUnsafeBytes(of: entry.pointee.d_name) {
+          String(decoding: $0.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+        }
+        if name.range(of: #"\A[a-f0-9]{64}\.jsonl\z"#, options: .regularExpression) != nil {
+          journals.append(name)
+        }
+        guard journals.count <= 128 else { return [] }
+      }
+      return journals.sorted().compactMap { name in
+        guard case .read(let transcript) = read(name, in: folder, owner: owner, limit: 4 << 20),
+          case .read(let target) = read(
+            name + ".apfs-target-prepared.evidence", in: folder, owner: owner, limit: 65536)
+        else { return nil }
+        let receipt: Data?
+        switch read(name + ".partitions.receipt", in: folder, owner: owner, limit: 65536) {
+        case .read(let bytes): receipt = bytes
+        case .absent: receipt = nil
+        case .unsuitable: return nil
+        }
+        return RemovalInterruptedInstall.parse(
+          transcript: transcript, target: target, receipt: receipt)
+      }
+    }
+
+    enum ProtectedFile {
+      case read(Data)
+      case absent, unsuitable
+    }
+
+    private static func read(_ name: String, in folder: Int32, owner: uid_t, limit: Int)
+      -> ProtectedFile
+    {
+      let fd = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+      guard fd >= 0 else { return errno == ENOENT ? .absent : .unsuitable }
+      let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+      var status = stat()
+      guard fstat(fd, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
+        status.st_uid == owner, status.st_mode & 0o022 == 0,
+        status.st_size > 0, status.st_size <= limit,
+        let bytes = try? handle.read(upToCount: limit + 1), bytes.count == Int(status.st_size)
+      else { return .unsuitable }
+      return .read(bytes)
+    }
 
     func snapshot() throws -> RemovalSnapshot {
       let target = try targetType().lowercased()
@@ -160,7 +234,8 @@
       return RemovalEvidence(
         files: RemovalInstallFiles(
           espBootObject: esp.0, stubInfo: esp.1, installerLog: esp.2, stubHasLibrary: stub.0,
-          stubBootObject: stub.1))
+          stubBootObject: stub.1,
+          interruptedInstalls: installJournals.map(readInterruptedInstalls) ?? []))
     }
 
     /// Reads an EFI partition in place when macOS already mounted it, otherwise

@@ -19,6 +19,33 @@ Unknown partitions, multiple or partial installations, external boot, multiple
 APFS physical stores, mismatched names/types/UUIDs and explicitly unsupported
 `apple,j614s` are refused. This deliberately does not attempt general disk repair.
 
+The group is confirmed as one installation by the ESP's `m1n1/boot.bin`,
+`asahi/stub_info.json` (naming the startup container's volume group) and
+`asahi/installer.log` (listing every partition it created), and by the startup
+container's m1n1 boot object chainloading that ESP. The engine writes the two
+`asahi/` records, each replaced whole, as soon as the ESP is laid out and before
+Recovery staging, and deletes macOS's AppleDouble (`._*`) files from the ESP.
+
+An install can stop before those records exist. Right after creating its
+partitions, engines from `20261106` write a receipt beside their root-owned
+journal (`<journal>.partitions.receipt`) naming the startup container, EFI, boot
+and root by UUID, offset and size. When either `asahi/` record is missing and
+exactly one unfinished journal (`stub_and_esp_started`, no `stub-and-esp-installed`
+checkpoint, no completion) names this startup container in its
+`apfs-target-prepared` evidence, the four partitions must be exactly the ones its
+receipt names. That holds even when the payload download or write failed, before
+the ESP or the startup container's m1n1 existed.
+
+Journals of earlier engines (`20261022`, failing at Recovery staging,
+#176/#177/#180) have no receipt. Only when both `asahi/` records are missing,
+their startup container must sit at the start of the plan's approved extent with
+the recorded size, all four partitions must lie inside that extent, and every
+startup container check applies. That proves the startup container and, through
+its m1n1, the ESP exactly; the Linux boot and root partitions only by their place
+inside the extent this helper carved out. A receipt that is present but unreadable
+disqualifies its journal. The helper reads journals through its root-owned
+directory with `openat` and `O_NOFOLLOW`.
+
 The helper validates disk/partition/container/volume identities before the first
 write and after each operation. It deletes the startup container without a
 replacement name (modern diskutil also deletes its physical-store partition),

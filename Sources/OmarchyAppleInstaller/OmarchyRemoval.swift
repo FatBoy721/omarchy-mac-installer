@@ -285,6 +285,11 @@
             "This installation has no Linux partitions of its own. If a Linux system elsewhere, for example on an external disk, starts through it, that system won’t start after removal. Its data isn’t touched."
           )
         }
+        if evidence?.provenByStoppedInstall(installation) == true {
+          notes.append(
+            "An earlier install stopped partway, before it finished writing to its EFI partition. This installer’s own record of that install identifies these partitions."
+          )
+        }
       } else {
         notes.append(
           "macOS takes all the unallocated space directly after it, whatever put it there.")
