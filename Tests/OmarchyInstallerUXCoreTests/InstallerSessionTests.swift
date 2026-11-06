@@ -937,6 +937,26 @@
       }
     }
 
+    func testARecoveryRetryThatLosesItsConnectionKeepsRemovalLocked() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.executeResults = [
+        .failure(EngineXPCSubmissionError.recoveryAuthorizationFailed),
+        .failure(EngineXPCSubmissionError.connectionFailed),
+      ]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      session.presentRecoveryRetryCredentials()
+      await session.submit(try authorization())
+      guard case .failed = session.phase else { return XCTFail("Expected failure") }
+      XCTAssertFalse(session.canOpenRemoval)
+    }
+
     func testRetrySheetStaysClosedWithoutEligibility() async throws {
       let environment = MockInstallerEnvironment()
       environment.executeResults = [

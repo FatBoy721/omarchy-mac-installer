@@ -579,7 +579,6 @@
           return
         }
         hasExecutionStarted = true
-        engineExitedAfterStarting = false
       case .retryRecoveryAuthorization:
         guard canRetryRecoveryAuthorization else {
           dismissCredentials()
@@ -593,6 +592,8 @@
           return
         }
       }
+      // Every submission starts an engine that hasn't reported exiting yet.
+      engineExitedAfterStarting = false
 
       operationID = UUID()
       let currentOperation = operationID
