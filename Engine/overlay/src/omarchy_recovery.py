@@ -28,6 +28,9 @@ STAGE2_PATH = "m1n1/boot.bin"
 VENDOR_FIRMWARE = ("vendorfw/firmware.tar", "vendorfw/firmware.cpio", "vendorfw/manifest.txt")
 OPTIONAL_VENDOR_FIRMWARE = "vendorfw/u-boot/asmedia/asm2214a-apple.bin"
 UUID_PATTERN = re.compile(r"[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}\Z")
+# macOS stores extended attributes (e.g. com.apple.provenance, which it adds to
+# every file the engine writes) as "._<name>" AppleDouble files on FAT.
+APPLEDOUBLE_MAGIC = b"\x00\x05\x16\x07"
 
 
 class RecoveryError(ValueError):
@@ -71,8 +74,34 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def is_appledouble_sidecar(path):
+    """True only for a real AppleDouble file whose companion entry exists.
+
+    Any other "._" file, or one without the AppleDouble header, stays in the
+    inventory and so still fails the manifest comparison.
+    """
+    path = Path(path)
+    if not path.name.startswith("._") or len(path.name) <= 2:
+        return False
+    if path.is_symlink() or not path.is_file():
+        return False
+    companion = path.with_name(path.name[2:])
+    if not os.path.lexists(companion):
+        return False
+    try:
+        with path.open("rb") as stream:
+            return stream.read(len(APPLEDOUBLE_MAGIC)) == APPLEDOUBLE_MAGIC
+    except OSError:
+        return False
+
+
+def _ignore_appledouble(directory, names):
+    return {name for name in names if is_appledouble_sidecar(Path(directory) / name)}
+
+
 def app_inventory(app):
-    """Byte inventory, independent of FAT's synthesized permission bits."""
+    """Byte inventory, independent of FAT's synthesized permission bits and
+    the AppleDouble metadata files macOS writes beside each file on FAT."""
     app = Path(app)
     if not app.is_dir() or app.is_symlink():
         raise RecoveryError("native Recovery app template is missing")
@@ -80,6 +109,8 @@ def app_inventory(app):
     for path in sorted(app.rglob("*")):
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise RecoveryError("native Recovery app contains a non-regular entry")
+        if is_appledouble_sidecar(path):
+            continue
         if path.is_file():
             data = path.read_bytes()
             files[path.relative_to(app).as_posix()] = {
@@ -389,7 +420,7 @@ def stage(installer, esp_uuid, esp_root, app_source=None,
         with tempfile.TemporaryDirectory(prefix=".omarchy-recovery-stage-", dir=system) as temporary:
             app = Path(temporary) / APP_NAME
             if not destination.exists():
-                shutil.copytree(app_source, app)
+                shutil.copytree(app_source, app, ignore=_ignore_appledouble)
                 (app / "Contents/MacOS/OmarchyRecovery").chmod(0o755)
                 _verify_staged_app(app, template, run)
                 _flush_tree(app)
