@@ -2,6 +2,7 @@
   import Darwin
   import Foundation
   import OpenDirectory
+  import RecoveryAccountCore
 
   enum RemovalStartupTool: Sendable {
     case blessGetBoot
@@ -36,6 +37,32 @@
     var openFAT:
       @Sendable (_ device: String, _ blockSize: Int, _ size: UInt64) throws ->
         any RemovalFileReading = { try RemovalFATVolume.rawDevice($0, blockSize: $1, size: $2) }
+    /// The helper's root-owned `execution-journals`; nil reads no install journal.
+    var installJournals: URL?
+    var readInterruptedInstalls: @Sendable (URL) -> [RemovalInterruptedInstall] =
+      Self.interruptedInstalls(in:)
+
+    /// Every journal there of an install that stopped before writing asahi/ on
+    /// its ESP. Unreadable or unsuitable records prove nothing and are skipped.
+    static func interruptedInstalls(in directory: URL) -> [RemovalInterruptedInstall] {
+      guard
+        let files = try? FileManager.default.contentsOfDirectory(
+          at: directory, includingPropertiesForKeys: nil)
+      else { return [] }
+      let journals = files.filter {
+        $0.lastPathComponent.range(of: "\\A[a-f0-9]{64}\\.jsonl\\z", options: .regularExpression)
+          != nil
+      }
+      guard journals.count <= 128 else { return [] }
+      return journals.compactMap { file in
+        guard
+          let transcript = try? RecoveryAccountInstaller.protectedRead(file, limit: 4 << 20),
+          let target = try? RecoveryAccountInstaller.protectedRead(
+            URL(fileURLWithPath: file.path + ".apfs-target-prepared.evidence"), limit: 65536)
+        else { return nil }
+        return RemovalInterruptedInstall.parse(transcript: transcript, target: target)
+      }
+    }
 
     func snapshot() throws -> RemovalSnapshot {
       let target = try targetType().lowercased()
@@ -160,7 +187,8 @@
       return RemovalEvidence(
         files: RemovalInstallFiles(
           espBootObject: esp.0, stubInfo: esp.1, installerLog: esp.2, stubHasLibrary: stub.0,
-          stubBootObject: stub.1))
+          stubBootObject: stub.1,
+          interruptedInstalls: installJournals.map(readInterruptedInstalls) ?? []))
     }
 
     /// Reads an EFI partition in place when macOS already mounted it, otherwise
