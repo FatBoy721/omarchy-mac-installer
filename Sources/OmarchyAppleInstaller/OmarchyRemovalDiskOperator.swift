@@ -2,7 +2,6 @@
   import Darwin
   import Foundation
   import OpenDirectory
-  import RecoveryAccountCore
 
   enum RemovalStartupTool: Sendable {
     case blessGetBoot
@@ -44,24 +43,69 @@
 
     /// Every journal there of an install that stopped before writing asahi/ on
     /// its ESP. Unreadable or unsuitable records prove nothing and are skipped.
+    /// The directory and every file are opened without following links, and
+    /// files are named only relative to the directory that was checked.
     static func interruptedInstalls(in directory: URL) -> [RemovalInterruptedInstall] {
-      guard
-        let files = try? FileManager.default.contentsOfDirectory(
-          at: directory, includingPropertiesForKeys: nil)
+      interruptedInstalls(in: directory, owner: 0)
+    }
+
+    static func interruptedInstalls(in directory: URL, owner: uid_t)
+      -> [RemovalInterruptedInstall]
+    {
+      let folder = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+      guard folder >= 0 else { return [] }
+      defer { close(folder) }
+      var status = stat()
+      guard fstat(folder, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+        status.st_uid == owner, status.st_mode & 0o022 == 0
       else { return [] }
-      let journals = files.filter {
-        $0.lastPathComponent.range(of: "\\A[a-f0-9]{64}\\.jsonl\\z", options: .regularExpression)
-          != nil
+      let listing = dup(folder)
+      guard listing >= 0, let stream = fdopendir(listing) else {
+        if listing >= 0 { close(listing) }
+        return []
       }
-      guard journals.count <= 128 else { return [] }
-      return journals.compactMap { file in
-        guard
-          let transcript = try? RecoveryAccountInstaller.protectedRead(file, limit: 4 << 20),
-          let target = try? RecoveryAccountInstaller.protectedRead(
-            URL(fileURLWithPath: file.path + ".apfs-target-prepared.evidence"), limit: 65536)
+      defer { closedir(stream) }
+      var journals = [String]()
+      while let entry = readdir(stream) {
+        let name = withUnsafeBytes(of: entry.pointee.d_name) {
+          String(decoding: $0.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+        }
+        if name.range(of: #"\A[a-f0-9]{64}\.jsonl\z"#, options: .regularExpression) != nil {
+          journals.append(name)
+        }
+        guard journals.count <= 128 else { return [] }
+      }
+      return journals.sorted().compactMap { name in
+        guard case .read(let transcript) = read(name, in: folder, owner: owner, limit: 4 << 20),
+          case .read(let target) = read(
+            name + ".apfs-target-prepared.evidence", in: folder, owner: owner, limit: 65536)
         else { return nil }
-        return RemovalInterruptedInstall.parse(transcript: transcript, target: target)
+        let receipt: Data?
+        switch read(name + ".partitions.receipt", in: folder, owner: owner, limit: 65536) {
+        case .read(let bytes): receipt = bytes
+        case .absent: receipt = nil
+        case .unsuitable: return nil
+        }
+        return RemovalInterruptedInstall.parse(
+          transcript: transcript, target: target, receipt: receipt)
       }
+    }
+
+    enum ProtectedFile { case read(Data), absent, unsuitable }
+
+    private static func read(_ name: String, in folder: Int32, owner: uid_t, limit: Int)
+      -> ProtectedFile
+    {
+      let fd = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+      guard fd >= 0 else { return errno == ENOENT ? .absent : .unsuitable }
+      let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+      var status = stat()
+      guard fstat(fd, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
+        status.st_uid == owner, status.st_mode & 0o022 == 0,
+        status.st_size > 0, status.st_size <= limit,
+        let bytes = try? handle.read(upToCount: limit + 1), bytes.count == Int(status.st_size)
+      else { return .unsuitable }
+      return .read(bytes)
     }
 
     func snapshot() throws -> RemovalSnapshot {

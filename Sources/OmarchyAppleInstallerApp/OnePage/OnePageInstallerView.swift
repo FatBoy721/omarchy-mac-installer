@@ -412,6 +412,12 @@ struct OnePageInstallerView: View {
             "This installation can’t be started again yet. Review the installation record below, and keep this Mac plugged in."
           )
           .font(OmarchyTheme.body)
+          if session.canOpenRemoval && !session.canRetryRecoveryAuthorization {
+            Text(
+              "To start over, choose Installation → Remove Omarchy… to remove what this installation left on the disk, then install again. Retrying without removing it won’t work."
+            )
+            .font(OmarchyTheme.body)
+          }
           DisclosureGroup("Last verified steps") {
             if session.journal.feed.isEmpty {
               Text(

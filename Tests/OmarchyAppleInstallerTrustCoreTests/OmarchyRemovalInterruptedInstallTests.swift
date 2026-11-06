@@ -25,6 +25,9 @@
       #"{"offset_bytes":627187052544,"partition_identifier":"disk0s3","plan_digest":"b68fa22f843b757b3052525bebc28ec7daf7609689e7da651febed590e959cb8","size_bytes":2499805184,"uuid":"D8E7A578-1EAA-4D33-B70B-186780564762"}"#
         .utf8)
 
+    static let legacyEngine = "v0.9.2-omarchy.20261022.31425f17fb9b"
+    static let receiptEngine = "v0.9.2-omarchy.20261106.2a7496426118"
+
     struct Journal {
       var planOffset: UInt64
       var planLength: UInt64
@@ -34,6 +37,21 @@
       var completion = false
       var stubUUID: String? = nil
       var stubOffset: UInt64? = nil
+      var engine = OmarchyRemovalInterruptedInstallTests.legacyEngine
+      /// The partitions a receipt names; nil writes no receipt.
+      var recorded: [RemovalPartition]? = nil
+
+      var receipt: Data? {
+        recorded.map { parts in
+          let object: [String: Any] = [
+            "plan_digest": OmarchyRemovalInterruptedInstallTests.planDigest,
+            "partitions": parts.map {
+              ["uuid": $0.uuid, "offset_bytes": $0.offset, "size_bytes": $0.size] as [String: Any]
+            },
+          ]
+          return try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        }
+      }
 
       var target: Data {
         let object: [String: Any] = [
@@ -51,7 +69,13 @@
         var records: [(String, [String: Any])] = [
           ("inspection", ["device_identifier": "disk0"]),
           ("inventory", ["layout_digest": digest]),
-          ("plan", ["plan_digest": digest, "offset_bytes": planOffset, "length_bytes": planLength]),
+          (
+            "plan",
+            [
+              "plan_digest": digest, "offset_bytes": planOffset, "length_bytes": planLength,
+              "engine_version": engine,
+            ]
+          ),
         ]
         records += events.map { ("event", ["plan_digest": digest, "name": $0]) }
         records += checkpoints.map {
@@ -80,16 +104,30 @@
       }
 
       var parsed: RemovalInterruptedInstall? {
-        RemovalInterruptedInstall.parse(transcript: transcript, target: target)
+        RemovalInterruptedInstall.parse(transcript: transcript, target: target, receipt: receipt)
+      }
+    }
+
+    static var members: [RemovalPartition] {
+      let snapshot = F.converged()
+      return ([F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux).map {
+        uuid in snapshot.partitions.first { $0.uuid == uuid }!
       }
     }
 
     /// The M2 lab layout, with the journal of the plan that made it.
-    func journal(_ snapshot: RemovalSnapshot = F.converged()) -> Journal {
-      let members = [F.convergedInstall.stub, F.convergedInstall.esp] + F.convergedInstall.linux
-      let parts = members.map { uuid in snapshot.partitions.first { $0.uuid == uuid }! }
+    func journal() -> Journal {
+      let parts = Self.members
       return Journal(
         planOffset: parts[0].offset, planLength: parts[3].end - parts[0].offset, stub: parts[0])
+    }
+
+    /// The same, from an engine that recorded every partition it created.
+    func receiptJournal() -> Journal {
+      var journal = journal()
+      journal.engine = Self.receiptEngine
+      journal.recorded = Self.members
+      return journal
     }
 
     /// What a Mac stranded by the Recovery staging failure has: no asahi/ records.
@@ -278,6 +316,118 @@
       let decoded = try JSONDecoder().decode(
         RemovalEvidence.self, from: JSONSerialization.data(withJSONObject: object))
       XCTAssertEqual(decoded, evidence)
+    }
+
+    // MARK: Partition receipts
+
+    func testAReceiptProvesEveryPartitionEvenBeforeTheESPWasWritten() throws {
+      // The payload download failed: nothing on the ESP, no m1n1 in the stub.
+      let disk = strandedDisk([try XCTUnwrap(receiptJournal().parsed)])
+      disk.files?.espBootObject = nil
+      disk.files?.stubBootObject = nil
+      let plan = try OmarchyRemovalPlan(disks: disk)
+      XCTAssertEqual(plan.members.map(\.uuid), Self.members.map(\.uuid))
+      XCTAssertTrue(
+        plan.ticket(id: UUID()).notes.contains { $0.hasPrefix("An earlier install stopped partway") })
+      try OmarchyRemovalExecutor(disks: disk).execute(plan) { _ in }
+      XCTAssertFalse(disk.operations.isEmpty)
+    }
+
+    func testAReceiptCoversEitherMissingRecord() throws {
+      let disk = strandedDisk([try XCTUnwrap(receiptJournal().parsed)])
+      disk.files?.stubInfo = RemovalFixtures.files(for: F.convergedInstall, in: F.converged())
+        .stubInfo
+      XCTAssertNoThrow(try OmarchyRemovalPlan(disks: disk))
+    }
+
+    func testAReceiptMustNameEveryPartitionExactly() throws {
+      var swapped = receiptJournal()
+      let root = swapped.recorded![3]
+      swapped.recorded![3] = RemovalPartition(
+        identifier: root.identifier, uuid: F.id(902), type: root.type, offset: root.offset,
+        size: root.size, name: root.name)
+      assertRefusal(
+        strandedDisk([try XCTUnwrap(swapped.parsed)]),
+        "the installer’s record of the installation that stopped doesn’t match the disk")
+    }
+
+    func testMalformedOrInconsistentReceiptsProveNothing() throws {
+      let journal = receiptJournal()
+      for receipt in [
+        Data("{}".utf8),
+        Data(#"{"plan_digest":"\#(Self.planDigest)","partitions":[]}"#.utf8),
+        journal.receipt!.dropLast(),
+      ] {
+        XCTAssertNil(
+          RemovalInterruptedInstall.parse(
+            transcript: journal.transcript, target: journal.target, receipt: receipt))
+      }
+      // The receipt's first partition must be the journal's startup container.
+      var reordered = journal
+      reordered.recorded!.swapAt(0, 1)
+      XCTAssertNil(reordered.parsed)
+      // Every partition must lie inside the plan's extent.
+      var outside = journal
+      outside.planLength -= 1
+      XCTAssertNil(outside.parsed)
+    }
+
+    func testOnlyEnginesWithoutReceiptsFallBackToTheExtent() throws {
+      var modern = journal()
+      modern.engine = Self.receiptEngine
+      let record = try XCTUnwrap(modern.parsed)
+      XCTAssertFalse(record.predatesPartitionReceipts)
+      assertRefusal(strandedDisk([record]), "its EFI partition has no readable asahi/stub_info.json")
+      for legacy in [Self.legacyEngine, "v0.9.2-omarchy.28", "v0.9.2-omarchy.20261105.0123456789ab"] {
+        var old = journal()
+        old.engine = legacy
+        XCTAssertTrue(try XCTUnwrap(old.parsed).predatesPartitionReceipts, legacy)
+      }
+    }
+
+    // MARK: Reading the helper's directory
+
+    func testJournalsAreReadOnlyFromAPrivateDirectoryWithoutFollowingLinks() throws {
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      let directory = root.appendingPathComponent("execution-journals")
+      try FileManager.default.createDirectory(
+        at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      defer { try? FileManager.default.removeItem(at: root) }
+      let journal = receiptJournal()
+      let name = String(repeating: "1", count: 64) + ".jsonl"
+      func write(_ data: Data, _ file: String) throws {
+        let url = directory.appendingPathComponent(file)
+        try data.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+      }
+      try write(journal.transcript, name)
+      try write(journal.target, name + ".apfs-target-prepared.evidence")
+      try write(journal.receipt!, name + ".partitions.receipt")
+      let read = { MacRemovalDiskOperator.interruptedInstalls(in: directory, owner: getuid()) }
+      XCTAssertEqual(read(), [try XCTUnwrap(journal.parsed)])
+
+      // Another owner's directory is not the helper's.
+      XCTAssertEqual(MacRemovalDiskOperator.interruptedInstalls(in: directory, owner: 0), [])
+      // A receipt that is a link proves nothing, even to a valid file.
+      let receipt = directory.appendingPathComponent(name + ".partitions.receipt")
+      try FileManager.default.removeItem(at: receipt)
+      try FileManager.default.createSymbolicLink(
+        at: receipt, withDestinationURL: directory.appendingPathComponent(name))
+      XCTAssertEqual(read(), [])
+      // Without a receipt, the journal alone still reads.
+      try FileManager.default.removeItem(at: receipt)
+      var bare = journal
+      bare.recorded = nil
+      XCTAssertEqual(read(), [try XCTUnwrap(bare.parsed)])
+      // A writable or linked directory is never read.
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o777], ofItemAtPath: directory.path)
+      XCTAssertEqual(read(), [])
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      let link = root.appendingPathComponent("linked")
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory)
+      XCTAssertEqual(MacRemovalDiskOperator.interruptedInstalls(in: link, owner: getuid()), [])
     }
   }
 #endif

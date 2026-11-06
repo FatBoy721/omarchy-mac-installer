@@ -767,6 +767,29 @@
       XCTAssertFalse(failure.retryRecoveryAvailable)
       XCTAssertTrue(session.hasExecutionStarted)
       XCTAssertNotNil(failure.technicalDetail)
+      // The engine may still be running: nothing else may touch the disk.
+      XCTAssertFalse(session.canOpenRemoval)
+    }
+
+    func testAnEngineFailureAfterDiskChangesLetsRemovalOpenButNotARerun() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.executeResults = [
+        .failure(
+          EngineXPCSubmissionError.engineFailed(
+            EngineFailureNotice(
+              reason: .unclassified, exitStatus: 1, diskUnchanged: false,
+              summary:
+                "omarchy_recovery.RecoveryError: native Recovery app differs from its engine manifest"
+            )))
+      ]
+      let session = await ready(environment)
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .failed = session.phase else { return XCTFail("Expected failure") }
+      XCTAssertTrue(session.hasExecutionStarted)
+      XCTAssertFalse(session.canInspect)
+      XCTAssertFalse(session.canChangeChannel)
+      XCTAssertTrue(session.canOpenRemoval)
     }
 
     func testQuitBlockedDuringHelperSetupAndExecutionButAllowedDuringPayloadWait() async throws {

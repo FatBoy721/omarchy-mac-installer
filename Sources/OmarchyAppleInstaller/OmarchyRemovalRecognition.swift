@@ -135,9 +135,17 @@
     var interruptedInstalls: [RemovalInterruptedInstall] = []
   }
 
+  /// One partition as the engine recorded it right after creating it.
+  struct RemovalRecordedPartition: Codable, Equatable, Hashable, Sendable {
+    let uuid: String
+    let offset: UInt64
+    let size: UInt64
+  }
+
   /// One root-owned install journal that created a startup container and then
   /// stopped: `stub_and_esp_started` without its checkpoint, and no completion.
-  /// It names the startup container exactly and the extent the plan approved.
+  /// It names the startup container exactly and the extent the plan approved;
+  /// engines from 2026-11-06 also leave a receipt naming every partition.
   struct RemovalInterruptedInstall: Codable, Equatable, Hashable, Sendable {
     let journal: SHA256Digest
     let targetEvidence: SHA256Digest
@@ -146,12 +154,33 @@
     let stubSize: UInt64
     let planOffset: UInt64
     let planLength: UInt64
+    let engineVersion: String
+    /// The startup container, EFI, boot and root, in that order, from the
+    /// journal's partitions receipt; nil when the engine wrote none.
+    let partitions: [RemovalRecordedPartition]?
+    let receipt: SHA256Digest?
 
-    /// nil unless `transcript` is a well-formed journal in exactly that state
-    /// and `target` is its `apfs-target-prepared` checkpoint evidence.
-    static func parse(transcript: Data, target: Data) -> RemovalInterruptedInstall? {
+    /// Engines named `…omarchy.YYYYMMDD.<hash>` from this date record every
+    /// partition; only journals of earlier engines may fall back to the extent.
+    static let firstReceiptEngineDate = "20261106"
+
+    var predatesPartitionReceipts: Bool {
+      guard
+        let match = engineVersion.range(
+          of: #"-omarchy\.[0-9]{8}\.[0-9a-f]{12}\z"#, options: .regularExpression)
+      else { return true }
+      let date = String(engineVersion[match].dropFirst("-omarchy.".count).prefix(8))
+      return date < Self.firstReceiptEngineDate
+    }
+
+    /// nil unless `transcript` is a well-formed journal in exactly that state,
+    /// `target` is its `apfs-target-prepared` checkpoint evidence and
+    /// `receipt`, when there is one, names its partitions consistently.
+    static func parse(transcript: Data, target: Data, receipt: Data? = nil)
+      -> RemovalInterruptedInstall?
+    {
       guard transcript.last == 10 else { return nil }
-      var plan: (digest: String, offset: UInt64, length: UInt64)?
+      var plan: (digest: String, offset: UInt64, length: UInt64, engine: String)?
       var events = Set<String>()
       var checkpoints = [String: String]()
       let lines = transcript.split(separator: 10, omittingEmptySubsequences: false).dropLast()
@@ -173,9 +202,10 @@
             SHA256Digest(hexadecimal: digest) != nil,
             let offset = uint64(payload["offset_bytes"]),
             let length = uint64(payload["length_bytes"]), length > 0,
-            !offset.addingReportingOverflow(length).overflow
+            !offset.addingReportingOverflow(length).overflow,
+            let engine = payload["engine_version"] as? String, !engine.isEmpty
           else { return nil }
-          plan = (digest, offset, length)
+          plan = (digest, offset, length, engine)
         case (3..., "event"):
           guard let plan, Set(payload.keys) == ["plan_digest", "name"],
             payload["plan_digest"] as? String == plan.digest,
@@ -208,10 +238,37 @@
         let size = uint64(evidence["size_bytes"]), size > 0, size <= plan.length,
         let targetEvidence = SHA256Digest(rawValue: targetDigest)
       else { return nil }
+      var partitions: [RemovalRecordedPartition]?
+      if let receipt {
+        // A receipt that is there but doesn't parse proves nothing.
+        guard
+          let object = try? JSONSerialization.jsonObject(with: receipt) as? [String: Any],
+          Set(object.keys) == ["plan_digest", "partitions"],
+          object["plan_digest"] as? String == plan.digest,
+          let entries = object["partitions"] as? [[String: Any]], entries.count == 4
+        else { return nil }
+        var recorded = [RemovalRecordedPartition]()
+        for entry in entries {
+          guard Set(entry.keys) == ["uuid", "offset_bytes", "size_bytes"],
+            let raw = entry["uuid"] as? String, let id = UUID(uuidString: raw),
+            let start = uint64(entry["offset_bytes"]), let length = uint64(entry["size_bytes"]),
+            length > 0, start >= plan.offset,
+            !start.addingReportingOverflow(length).overflow,
+            start + length <= plan.offset + plan.length,
+            !recorded.contains(where: { $0.uuid == id.uuidString })
+          else { return nil }
+          recorded.append(RemovalRecordedPartition(uuid: id.uuidString, offset: start, size: length))
+        }
+        guard recorded[0] == RemovalRecordedPartition(uuid: uuid.uuidString, offset: offset, size: size)
+        else { return nil }
+        partitions = recorded
+      }
       return RemovalInterruptedInstall(
         journal: SHA256Digest(hashing: transcript), targetEvidence: targetEvidence,
         stubUUID: uuid.uuidString,
-        stubOffset: offset, stubSize: size, planOffset: plan.offset, planLength: plan.length)
+        stubOffset: offset, stubSize: size, planOffset: plan.offset, planLength: plan.length,
+        engineVersion: plan.engine, partitions: partitions,
+        receipt: receipt.map(SHA256Digest.init(hashing:)))
     }
 
     private static func uint64(_ value: Any?) -> UInt64? {
@@ -263,38 +320,60 @@
 
     /// nil when every check passes; otherwise the first check that failed, as a phrase.
     func problem(for installation: RemovalInstallation) -> String? {
+      if let proof = stoppedInstallProof(for: installation) { return proof }
       guard espBootObject != nil else { return "its EFI partition has no m1n1/boot.bin" }
-      if stubInfo == nil, installerRecord == .missing {
-        // Neither ESP record was written: only the helper's journal of the
-        // install that stopped before writing them can stand in for both.
-        if let reason = interruptedProblem(for: installation) { return reason }
-      } else if let reason = installerRecordProblem(for: installation) {
-        return reason
-      }
+      if let reason = installerRecordProblem(for: installation) { return reason }
       return startupContainerProblem(for: installation)
     }
 
-    private func interruptedProblem(for installation: RemovalInstallation) -> String? {
+    /// Whether only the helper's journal of an install that stopped partway
+    /// proves this installation (for the removal sheet's wording).
+    func provenByStoppedInstall(_ installation: RemovalInstallation) -> Bool {
+      stoppedInstallProof(for: installation) == .some(nil)
+    }
+
+    /// nil when no journal applies and the ESP records decide; .some(nil) when
+    /// the journal proves the installation; .some(reason) when it applies but
+    /// doesn't match the disk.
+    private func stoppedInstallProof(for installation: RemovalInstallation) -> String?? {
+      guard stubInfo == nil || installerRecord == .missing else { return nil }
       let matches = (interruptedInstalls ?? []).filter {
         $0.stubUUID == UUID(uuidString: installation.stub.uuid)?.uuidString
       }
-      guard matches.count == 1, let record = matches.first else {
-        return "its EFI partition has no readable asahi/stub_info.json"
-      }
-      let limit = record.planOffset + record.planLength
+      guard matches.count == 1, let record = matches.first else { return nil }
+      let mismatch =
+        "the installer’s record of the installation that stopped doesn’t match the disk"
       let members = installation.members
+      if let recorded = record.partitions {
+        // Every partition by the exact identity it was created with: the ESP
+        // and the startup container's m1n1 may not have been written yet.
+        let found = members.map {
+          RemovalRecordedPartition(
+            uuid: UUID(uuidString: $0.uuid)?.uuidString ?? $0.uuid, offset: $0.offset,
+            size: $0.size)
+        }
+        guard found == recorded else { return .some(mismatch) }
+        guard !stubHasLibrary else { return .some(Self.fullSystem) }
+        return .some(nil)
+      }
+      // Older engines left no receipt: only when both ESP records are missing,
+      // the Linux partitions are proven by their place in the approved extent.
+      guard stubInfo == nil, installerRecord == .missing, record.predatesPartitionReceipts
+      else { return nil }
+      guard espBootObject != nil else { return .some("its EFI partition has no m1n1/boot.bin") }
+      let limit = record.planOffset + record.planLength
       guard members.count == 4, installation.stub.offset == record.stubOffset,
         installation.stub.size == record.stubSize,
         members.allSatisfy({
           $0.offset >= record.planOffset && !$0.offset.addingReportingOverflow($0.size).overflow
             && $0.end <= limit
         })
-      else {
-        return
-          "the installer’s record of the installation that stopped doesn’t match the disk"
-      }
-      return nil
+      else { return .some(mismatch) }
+      return .some(startupContainerProblem(for: installation))
     }
+
+    static let fullSystem =
+      "its startup container holds a full system (a Library folder), unlike a startup container made by the Asahi installer"
 
     private func installerRecordProblem(for installation: RemovalInstallation) -> String? {
       guard stubInfo != nil, let stubVolumeGroup else {
@@ -338,10 +417,7 @@
     }
 
     private func startupContainerProblem(for installation: RemovalInstallation) -> String? {
-      guard !stubHasLibrary else {
-        return
-          "its startup container holds a full system (a Library folder), unlike a startup container made by the Asahi installer"
-      }
+      guard !stubHasLibrary else { return Self.fullSystem }
       guard stubBootObject != nil else {
         return "its startup container has no m1n1 boot object (Finish Installation.app)"
       }
