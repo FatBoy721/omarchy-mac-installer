@@ -86,6 +86,21 @@ class Stage1CoordinatorTests(unittest.TestCase):
             "awaiting_recovery",
         )
 
+    def test_adapter_receives_the_journals_receipt_store(self):
+        class ReceiptAdapter(RecordingStage1Adapter):
+            def bind_receipts(self, store):
+                self.store = store
+
+            def install_stub_and_esp(self, plan):
+                self.store("partitions", b'{"partitions":[]}')
+                return super().install_stub_and_esp(plan)
+
+        run_stage1(self.plan, self.journal, ReceiptAdapter())
+        self.assertEqual(
+            Path(str(self.path) + ".partitions.receipt").read_bytes(),
+            b'{"partitions":[]}',
+        )
+
     def test_completed_stage1_retry_performs_no_mutation(self):
         first = RecordingStage1Adapter()
         run_stage1(self.plan, self.journal, first)

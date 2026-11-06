@@ -251,6 +251,26 @@ class ResumableJournalTests(unittest.TestCase):
         ):
             resumed.checkpoint_evidence("apfs-created")
 
+    def test_receipts_are_private_whole_and_outside_the_record_stream(self):
+        journal = self._planned_journal()
+        records = self.path.read_bytes()
+        journal.store_receipt("partitions", b'{"partitions":[1]}')
+        journal.store_receipt("partitions", b'{"partitions":[1,2]}')
+        receipt = self.root / "engine.jsonl.partitions.receipt"
+        self.assertEqual(receipt.read_bytes(), b'{"partitions":[1,2]}')
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root / "engine.jsonl.partitions.receipt.new").exists())
+        self.assertEqual(self.path.read_bytes(), records)
+        Journal(str(self.path))
+        for name, data in (("../escape", b"x"), ("partitions", b""), ("partitions", "x")):
+            with self.subTest(name=name, data=data), self.assertRaisesRegex(
+                ContractError, "invalid receipt"
+            ):
+                journal.store_receipt(name, data)
+        journal.completion("awaiting_recovery")
+        with self.assertRaisesRegex(ContractError, "journal is complete"):
+            journal.store_receipt("partitions", b"{}")
+
     def test_truncated_journal_is_rejected(self):
         journal = self._planned_journal()
         self.path.write_bytes(self.path.read_bytes()[:-1])

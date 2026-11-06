@@ -95,6 +95,19 @@ def is_appledouble_sidecar(path):
         return False
 
 
+def remove_appledouble_sidecars(root):
+    """Delete macOS's AppleDouble files from a FAT tree (os.walk never follows links).
+
+    They only carry extended attributes such as com.apple.provenance, which
+    FAT can't store; nothing that boots from the ESP reads them.
+    """
+    for directory, _, files in os.walk(root):
+        for name in files:
+            path = Path(directory) / name
+            if is_appledouble_sidecar(path):
+                path.unlink()
+
+
 def _ignore_appledouble(directory, names):
     return {name for name in names if is_appledouble_sidecar(Path(directory) / name)}
 

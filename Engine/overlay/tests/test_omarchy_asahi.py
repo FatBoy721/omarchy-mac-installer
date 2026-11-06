@@ -33,9 +33,9 @@ class FakeOSInstaller:
     def partition_disk(self, name, size):
         self.calls.append(("partition_disk", name, size))
         self.part_info = [
-            SimpleNamespace(name="disk0s5", uuid="EFI-UUID", size=500 * 1024**2),
-            SimpleNamespace(name="disk0s6", uuid="BOOT-UUID", size=2 * GIB),
-            SimpleNamespace(name="disk0s7", uuid="ROOT-UUID", size=32 * GIB),
+            SimpleNamespace(name="disk0s5", uuid="EFI-UUID", offset=10 * GIB, size=500 * 1024**2),
+            SimpleNamespace(name="disk0s6", uuid="BOOT-UUID", offset=11 * GIB, size=2 * GIB),
+            SimpleNamespace(name="disk0s7", uuid="ROOT-UUID", offset=13 * GIB, size=32 * GIB),
         ]
         self.efi_part = self.part_info[0]
 
@@ -320,8 +320,62 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                     adapter.install_stub_and_esp(self.plan)
                     self.assertEqual(Path(esp_asahi, "installer.log").read_text(),
                                      "New partition: after staging\n")
+                    self.assertEqual(sorted(os.listdir(esp_asahi)),
+                                     ["installer.log", "stub_info.json"])
             finally:
                 os.chdir(previous)
+
+    def test_partition_receipt_precedes_every_payload_write(self):
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.preflight(self.plan)
+        adapter.prepare_target(self.plan)
+        receipts = []
+        adapter.bind_receipts(lambda name, data: receipts.append((name, json.loads(data))))
+        with patch.object(adapter.osins, "install", side_effect=OSError("download failed")):
+            with self.assertRaisesRegex(OSError, "download failed"):
+                adapter.install_stub_and_esp(self.plan)
+        stub = adapter.target_part
+        self.assertEqual(receipts, [("partitions", {
+            "plan_digest": self.plan.plan_digest,
+            "partitions": [
+                {"uuid": stub.uuid.upper(), "offset_bytes": stub.offset, "size_bytes": stub.size},
+                {"uuid": "EFI-UUID", "offset_bytes": 10 * GIB, "size_bytes": 500 * 1024**2},
+                {"uuid": "BOOT-UUID", "offset_bytes": 11 * GIB, "size_bytes": 2 * GIB},
+                {"uuid": "ROOT-UUID", "offset_bytes": 13 * GIB, "size_bytes": 32 * GIB},
+            ],
+        })])
+
+    def test_esp_appledouble_sidecars_are_removed_before_staging(self):
+        import omarchy_recovery
+        metadata = self._target_metadata()
+        metadata["recovery_gui"] = "omarchy-native-v1"
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        with patch("omarchy_asahi.omarchy_recovery.validate_payload"):
+            adapter.preflight(self.plan)
+        adapter.prepare_target(self.plan)
+        esp = Path(installer.dutil.mount("disk0s5"))
+        sidecar = omarchy_recovery.APPLEDOUBLE_MAGIC.ljust(4096, b"\0")
+        seen = []
+
+        def stage(*args, **kwargs):
+            seen.extend(p.name for p in esp.rglob("._*"))
+
+        def install(_):
+            (esp / "m1n1").mkdir(exist_ok=True)
+            (esp / "m1n1/boot.bin").write_bytes(b"m1n1")
+            (esp / "m1n1/._boot.bin").write_bytes(sidecar)
+            (esp / "._m1n1").write_bytes(sidecar)
+            (esp / "._unrelated").write_bytes(b"not appledouble")
+
+        with patch.object(adapter.osins, "install", side_effect=install), patch(
+            "omarchy_asahi.omarchy_recovery.stage", side_effect=stage
+        ), patch.object(adapter, "_installed_evidence", return_value=b"{}"):
+            adapter.install_stub_and_esp(self.plan)
+        self.assertEqual(seen, ["._unrelated"])
+        self.assertEqual(sorted(p.name for p in esp.rglob("._*")), ["._unrelated"])
 
     def test_invalid_helper_template_or_source_owner_stops_before_disk_calls(self):
         import omarchy_recovery
