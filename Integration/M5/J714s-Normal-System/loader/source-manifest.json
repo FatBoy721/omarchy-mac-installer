@@ -1,0 +1,78 @@
+{
+  "format": 1,
+  "repository": "https://github.com/omacom/m1n1",
+  "base_commit": "02785a35e046901d5686ab9059b2c08b6256752a",
+  "patch_sha256": "d634a7aba77bc72b5d4ed45ac964fd5c7b9bb0ab46cc7a70a6385771aaa1b1f8",
+  "tracked_changes": 9,
+  "new_files": 2,
+  "source_files": {
+    "src/kboot_atc.c": {
+      "sha256": "bdc9fdbee7f7be4e5b2472c1c686078ae6b9d4a654135768c56e051ebd2a9fa5",
+      "bytes": 46361,
+      "new": false,
+      "spdx": null
+    },
+    "src/kboot_n1.c": {
+      "sha256": "4557fb1169a42b4743146078e9d197def8faffb2df75e6aa37c473339ae1565c",
+      "bytes": 16552,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/main.c": {
+      "sha256": "ccb01918a8aeef01159c7af588ce26d77a347b2845ab0ed28ccc6cfbc6967086",
+      "bytes": 11281,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/smp.c": {
+      "sha256": "cbaf96fbe6f3cd1c4d7e983b1bf0f6607a01dc3a475aca4b62d842144a31e10d",
+      "bytes": 31354,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/smp_asm.h": {
+      "sha256": "461da7d67f4b545529697b82908ac0f18e208666014739f3c16bde19f8b93199",
+      "bytes": 285,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/usb.c": {
+      "sha256": "fea1bd32a360aac31b3aed5248eb0b09e9ee33cb1589c323f24fce86791fdbb5",
+      "bytes": 23231,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/usb_dwc3.c": {
+      "sha256": "3a504f0cff96895074311bc4c7c687278bef3a4ed421cdbd853d198af2b74d4c",
+      "bytes": 5309,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/usb_dwc3.h": {
+      "sha256": "2ce30d53f01bde76315f7eb399709d316e45ebef2a52388f101f08f60a849a72",
+      "bytes": 1271,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "src/usb_dwc3_impl.inc": {
+      "sha256": "27f33a3b31e3dc56e72b74069717d3e4bea78673c1b9a4f4edc31a4b0746a2c3",
+      "bytes": 78812,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "tests/run-t8152-smp-bounds.sh": {
+      "sha256": "d03fac810884a2089ee90dfb1496c10b3a536593798109df95ed46225608743d",
+      "bytes": 1017,
+      "new": true,
+      "spdx": null
+    },
+    "tests/t8152_smp_bounds_host.c": {
+      "sha256": "c6c57d0efde6274c94314b3a2a2007860b10c818cd76781a4f152c3c2628f78a",
+      "bytes": 3777,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    }
+  },
+  "contains_firmware_or_adt_dump": false,
+  "hardware_qualification": "Earlier split-payload J714s evidence only; normal U-Boot/Limine chain is unqualified."
+}

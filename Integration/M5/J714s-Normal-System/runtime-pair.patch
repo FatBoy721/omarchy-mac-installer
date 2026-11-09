@@ -1,0 +1,66 @@
+diff --git i/pkgbuilds/omarchy-settings/PKGBUILD w/pkgbuilds/omarchy-settings/PKGBUILD
+index dc33b3c..8e6bf0b 100644
+--- i/pkgbuilds/omarchy-settings/PKGBUILD
++++ w/pkgbuilds/omarchy-settings/PKGBUILD
+@@ -13,7 +13,7 @@ pkgname='omarchy-settings'
+ _tag='v4.5.0'
+ _commit='a948d8a6871f446b335258c827648ac5f4e9428b'
+ pkgver=4.5.0
+-pkgrel=2
++pkgrel=3.7141
+ pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers'
+ # Arch-specific because the shipped /etc tree is not the same on every
+ # architecture for older sources: their zram and oomd drop-ins belong to the
+@@ -166,6 +166,19 @@ _omarchy_settings_hooks_after() {
+ package() {
+   cd "$srcdir/omarchy"
+ 
++  local source_revision
++  source_revision=$(git rev-parse --verify HEAD) || return 1
++  [[ $source_revision == "$_commit" ]] || {
++    echo 'Developer package source revision does not match its pin' >&2
++    return 1
++  }
++  [[ -z $(git status --porcelain --untracked-files=normal) ]] || {
++    echo 'Developer package requires a clean pinned source tree' >&2
++    return 1
++  }
++  printf '%s\n' "$source_revision" | install -Dm644 /dev/stdin \
++    "$pkgdir/usr/share/doc/omarchy-settings/source-revision"
++
+   # A source that decides at runtime which platform-specific files apply (see
+   # default/settings-runtime-profile in it) ships its whole tree on aarch64,
+   # with the same backup and optdepends as x86_64. Older sources still leave
+diff --git i/pkgbuilds/omarchy/PKGBUILD w/pkgbuilds/omarchy/PKGBUILD
+index 23f277e..bb89afb 100644
+--- i/pkgbuilds/omarchy/PKGBUILD
++++ w/pkgbuilds/omarchy/PKGBUILD
+@@ -13,7 +13,7 @@ pkgname='omarchy'
+ _tag='v4.5.0'
+ _commit='a948d8a6871f446b335258c827648ac5f4e9428b'
+ pkgver=4.5.0
+-pkgrel=2
++pkgrel=3.7141
+ pkgdesc='Beautiful, modern, and opinionated Arch Linux by DHH'
+ # The payload is architecture-independent, but the dependency set is not: the
+ # boot stack differs per architecture (see depends_x86_64 / depends_aarch64),
+@@ -111,6 +111,19 @@ prepare() {
+ package() {
+   cd "$srcdir/omarchy"
+ 
++  local source_revision
++  source_revision=$(git rev-parse --verify HEAD) || return 1
++  [[ $source_revision == "$_commit" ]] || {
++    echo 'Developer package source revision does not match its pin' >&2
++    return 1
++  }
++  [[ -z $(git status --porcelain --untracked-files=normal) ]] || {
++    echo 'Developer package requires a clean pinned source tree' >&2
++    return 1
++  }
++  printf '%s\n' "$source_revision" | install -Dm644 /dev/stdin \
++    "$pkgdir/usr/share/doc/omarchy/source-revision"
++
+   # Sources with the grant revocation hook move the temporary passwordless
+   # sudo command and its library to omarchy-settings. Conditional until no
+   # pinned source predates them.

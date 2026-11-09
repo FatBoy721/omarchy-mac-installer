@@ -1,0 +1,47 @@
+# Private J714s normal-system candidate
+
+This prepares the existing Omarchy package recipes for a developer J714s candidate: normal m1n1 → U-Boot → Limine → EFI Linux, one kernel/modules/device-tree package, and native Mesa/Vulkan in `/usr`. It is not a supported installer or a hardware-qualified release. It is outside `pkgbuilds/`, so normal package discovery and publication do not select it; prepared copies have their publication/watch metadata removed. Standard recipes remain unchanged.
+
+```bash
+Integration/M5/J714s-Normal-System/prepare /absolute/new/build-directory
+```
+
+The command fetches immutable omacom/omarchy-pkgs commit `30a33ee435db8f4a158ca41f82e91cc34bcd2e3b` into a local Git cache, verifies the resolved commit, extracts the selected recipes, applies the checksummed `recipes.patch` and `runtime-pair.patch`, then copies the frozen kernel, loader and Mesa inputs. Its only network access is that pinned Git fetch. It does not build, install, enroll, contact a Mac or publish. Existing destinations are refused. Build the copies with ordinary Arch `makepkg` in an appropriate aarch64 build environment. Their package names/providers/conflicts stay normal, so do not install these private candidates on an ordinary supported Mac.
+
+## Exact sources
+
+| Component | Public baseline and private source closure | Normal integration |
+| --- | --- | --- |
+| m1n1 | [omacom/m1n1 `02785a35e046901d5686ab9059b2c08b6256752a`](https://github.com/omacom/m1n1/commit/02785a35e046901d5686ab9059b2c08b6256752a), plus `loader/j714s-frozen-source.patch` and its 11-file manifest | This baseline already contains the live ANS adoption marker and the G17S six-region/firmware/mailbox handoff. The frozen delta preserves the demonstrated J714s N1 host-list admission, USB and secondary-core bounds. Original artwork, separate stage 1/ESP stage 2, license files, ordinary asahi-scripts dependency and installer compatibility paths remain. `MAX_CPUS=24` and `T6050_NO_HOST_PREP` preserve the J714s source-build choices. No automatic stage 1 enrollment. |
+| U-Boot | [edimoldovan/u-boot `70e990818a895454780797beedc6a7bdac9e2fd6`](https://github.com/edimoldovan/u-boot/commit/70e990818a895454780797beedc6a7bdac9e2fd6) | Adopts ANS only when m1n1 supplies `asahi,nvme-adopt`; preserves the ordinary quiet-console patch, volatile EFI variable storage, asahi-boot payload path and GPL license. |
+| Kernel/modules/DTBs | [rolotrealanis98/linux `34f2f5bb4d03bbe3acce237cb67af8dc9972aa4a`](https://github.com/rolotrealanis98/linux/commit/34f2f5bb4d03bbe3acce237cb67af8dc9972aa4a), plus `kernel/j714s-frozen-source.patch` and its 83-path changed/new source manifest | The source manifest hashes 61 tracked changes and 22 new source files, including the J714s board and T6050 PHY headers omitted from earlier partial patches. The patch also preserves upstream deletions from the frozen diff. Normal recipe packaging keeps `vmlinuz`, `pkgbase`, matching modules and DTBs together under one actual kernel release ending in `-ARCH`; no module-only surrogate. Source configuration stays the demonstrated restricted J714s profile, with packaging release metadata changed and ordinary `DM_CRYPT=m` added for encrypted installation. |
+| Mesa/Vulkan | [rolotrealanis98/mesa `043a4c58080c4951fea3797fe45fc6898ce77632`](https://github.com/rolotrealanis98/mesa/commit/043a4c58080c4951fea3797fe45fc6898ce77632) | The standard split recipes build native Gallium/Zink/llvmpipe and Vulkan into `/usr`, retain providers/conflicts, soname dependency checks and unit tests. The pinned kernel/Mesa `asahi_drm.h` bytes match (SHA-256 `75e496826dae573b5135b62607c1397a13d7d3a84fc5e15d0680df230b84e6a3`). The private candidate supplies its required `ASAHI_M5_BRINGUP=1` through systemd `environment.d`, without `/opt` libraries or manual shell environment commands. |
+
+Loader/kernel/Mesa/U-Boot versions carry the `.j714s2` marker; the independently versioned firmware-order package carries `.j714s1`. Kernel package version is `7.3.0.aurora15.j714s2-1`; expected kernel release is `7.3.0-15.j714s2-1-j714s-candidate-ARCH`, to be checked against the build rather than assumed. The build-qualification record stays `hardware_tested=false` and `stage1_auto_enrollment=false`. A matching source snapshot and UAPI do not prove the combined normal boot chain.
+
+The older `.j714s1` package pair used a J714c-derived loader that compiles but lacks this J714s N1/G17S closure; it must not be substituted for `.j714s2` in a J714s system candidate.
+
+The preparer also applies `runtime-pair.patch` to the normal Omarchy and settings recipes. Both retain the exact `v4.5.0` source pin `a948d8a6871f446b335258c827648ac5f4e9428b` and use developer-only pkgrel `3.7141`. Their source-revision records come from the actual Git HEAD during packaging, with mismatched or dirty trees rejected before payload staging. Their version equality and ordinary `omarchy-settings=4.5.0` dependency remain intact; these are source builds, not repacked published archives.
+
+## Firmware, boot and networking requirements
+
+The stub restore OS must be macOS 27.3 beta 1 / `26C5035r`; separately verify the actual system/stub boot firmware `mBoot-20457.60.65.0.1`. Main macOS version alone is insufficient. No Apple firmware, tickets, ADT dumps, credentials or release signing keys are included.
+
+The existing restricted SMC implementation requires the exact kernel command-line entries `macsmc.m5_pcio_budget=2 macsmc.m5_n1_budget=3` for the previously demonstrated AFE/N1 operations. The installer's J714sap-only candidate image profile must seed these through ordinary GRUB defaults before its first UKI build; the existing Mac command-line bridge retains them through encryption/rekey/update. The standalone recipe preparer does not activate that image profile or run a hardware test. The recipe does not remove the SMC write restrictions, enable the missing poweroff/battery children or silently grant other SMC operations.
+
+Fresh networking should use the existing Mac runtime's NetworkManager/iwd path and ordinary connection UI. No saved network, passphrase or PMK conversion is embedded here. The earlier native Wi-Fi result used a NetworkManager/wpa_supplicant equivalent-PMK workaround; it does not qualify a fresh iwd join. [Mac packages PR101](https://github.com/omacom/omarchy-mac-pkgs/pull/101) supplies an existing N1-specific iwd default for 6 GHz; qualify that exact runtime on J714s before claiming it works. Administrator backend/security overrides remain administrator-owned.
+
+Firmware preparation remains an image-producer dependency. The generated `omarchy-aurora-firmware` candidate (`20261014.j714s1-1`, integrated from peer commit `07c4c34`) extends the existing blacklist/firmware-ready helper: on exact `apple,j714s`, it admits the first `apple_centauri` load only after the unique PCI control node's `firmware-name` is present. It never reloads or resets the radio; missing/ambiguous identity defers it. Twelve source fixture tests include the existing Neo/legacy inverse cases. This is source/build qualification of ordering, not a fresh J714s Wi-Fi pass.
+
+## Qualification still required
+
+- Matched normal stage 1/stage 2/U-Boot/EFI kernel boot, cold and warm; full fresh installation through the ordinary image producer; first login, encryption and keyboard/trackpad at the passphrase prompt.
+- Complete poweroff and restart. The frozen profile retains `POWER_RESET_MACSMC=n`, `MACSMC_POWER=n` and the restricted MFD children; physical poweroff remains a known blocker. [J714c commit `38e75c9f1c07`](https://github.com/edimoldovan/linux-aurora/commit/38e75c9f1c07) reuses the existing SMC reboot driver but its DT/nvmem grant needs exact J714s review and testing.
+- Build and inspect the actual normal Mesa/Vulkan packages; prior `/opt` native rendering evidence is separate. Validate ordinary session inheritance of the candidate environment and hardware rendering after fresh login.
+- Verify initramfs dependency closure and early firmware, kernel/module identity, normal update recomposition, rollback and recovery. Existing-model regression qualification remains required before any shared recipe change.
+
+## Provenance and licenses
+
+These are integration snapshots of public and previously demonstrated local derivatives, not new hardware discoveries or a clean-room claim. The original file headers, author/copyright notices and per-file SPDX identifiers remain intact in the patches. Kernel source follows its GPL/per-file dual-license terms; the exact pinned m1n1 tree and modified C files carry MIT terms; its third-party licenses still ship with the normal recipe. New kernel config fragments are kernel configuration derivatives; the loader bounds fixture is project-owned test code. The public contributions credited in the snapshots include Asahi Linux, Aurora Silicon, betizzel, Rolando Trevino and Eduard Moldovan. Do not apply a later upstream repository's license retroactively to these exact pinned files or strip their existing notices.
+
+`kernel/source-manifest.json` and `loader/source-manifest.json` identify the changed/new source files and their digests (83 for the kernel snapshot and 11 for the loader snapshot). The patches preserve deletions from their exact frozen diffs. The manifests contain source identity, not signed model admission or native qualification; they do not replace the installer's authenticated package/candidate-set checks.

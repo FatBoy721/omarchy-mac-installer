@@ -1,0 +1,70 @@
+#!/bin/bash
+# Prepare private build recipes; never build, publish, install or enroll them.
+set -euo pipefail
+
+candidate_root=$(realpath "${BASH_SOURCE[0]%/*}")
+repository_root=$(realpath "$candidate_root/../../..")
+recipe_base=30a33ee435db8f4a158ca41f82e91cc34bcd2e3b
+recipe_remote=https://github.com/omacom/omarchy-pkgs.git
+patch_sha256=fedc6ac8675456429922126640064632203a7edcbba54688afd2083f86391e1c
+
+runtime_patch_sha256=0ea9081a72f4dbcdeb30a68fb534547776d401c7d888259fb3dca757fcf9ccad
+
+fail() {
+  printf 'j714s-normal-boot: %s\n' "$*" >&2
+  exit 1
+}
+
+if (( $# != 1 )) || [[ $1 != /* ]]; then
+  fail 'usage: Integration/M5/J714s-Normal-System/prepare /absolute/new/build-directory'
+fi
+output=$(realpath -m -- "$1")
+if [[ -e $output || -L $output ]]; then
+  fail 'the output must not exist; existing build files are never overwritten'
+fi
+case "$output/" in
+  "$repository_root/"*) fail 'prepare outside this checkout; normal build recipes stay unchanged' ;;
+esac
+[[ -d $(dirname "$output") ]] || fail 'create the output parent directory first'
+actual_sha256=$(sha256sum "$candidate_root/recipes.patch")
+[[ ${actual_sha256%% *} == "$patch_sha256" ]] || fail 'the candidate recipe patch digest does not match'
+
+actual_runtime_sha256=$(sha256sum "$candidate_root/runtime-pair.patch")
+[[ ${actual_runtime_sha256%% *} == "$runtime_patch_sha256" ]] || fail 'the runtime recipe patch digest does not match'
+
+cache_root=${XDG_CACHE_HOME:-${TMPDIR:-/tmp}/omarchy-mac-installer-cache}
+source_cache=${OMARCHY_PKGS_CACHE:-$cache_root/omarchy-pkgs}
+if [[ -e $source_cache ]]; then
+  [[ -d $source_cache ]] || fail "source cache is not a directory: $source_cache"
+  [[ $(git --git-dir="$source_cache" rev-parse --is-bare-repository 2>/dev/null || true) == true ]] || fail "source cache is not a bare Git repository: $source_cache"
+  [[ $(git --git-dir="$source_cache" remote get-url origin 2>/dev/null || true) == "$recipe_remote" ]] || fail "source cache origin does not match $recipe_remote"
+else
+  mkdir -p -- "$(dirname "$source_cache")"
+  git init --bare "$source_cache" >/dev/null
+  git --git-dir="$source_cache" remote add origin "$recipe_remote"
+fi
+git --git-dir="$source_cache" fetch --no-tags --depth=1 origin "$recipe_base" || fail 'could not fetch the pinned omarchy-pkgs source commit'
+git --git-dir="$source_cache" cat-file -e "$recipe_base^{commit}" || fail 'the fetched recipe source is not the pinned commit'
+actual_recipe_base=$(git --git-dir="$source_cache" rev-parse "$recipe_base^{commit}")
+[[ $actual_recipe_base == "$recipe_base" ]] || fail "resolved recipe source differs from pin: $actual_recipe_base"
+
+mkdir -m 700 -- "$output"
+git --git-dir="$source_cache" archive "$recipe_base" \
+  pkgbuilds/m1n1-aurora pkgbuilds/uboot-aurora \
+  pkgbuilds/linux-aurora pkgbuilds/mesa-aurora pkgbuilds/omarchy-aurora-firmware pkgbuilds/omarchy pkgbuilds/omarchy-settings | tar -xf - -C "$output"
+patch -d "$output" -p1 --fuzz=0 --batch --no-backup-if-mismatch < "$candidate_root/recipes.patch"
+patch -d "$output" -p1 --fuzz=0 --batch --no-backup-if-mismatch < "$candidate_root/runtime-pair.patch"
+cp "$candidate_root/loader/j714s-frozen-source.patch" "$output/pkgbuilds/m1n1-aurora/"
+cp "$candidate_root/kernel/"{j714s-frozen-source.patch,j714s-required.config,config} "$output/pkgbuilds/linux-aurora/"
+cp "$candidate_root/mesa/j714s-gpu.env" "$output/pkgbuilds/mesa-aurora/"
+cp "$candidate_root/README.md" "$output/README.md"
+
+for package in m1n1-aurora uboot-aurora linux-aurora mesa-aurora omarchy-aurora-firmware omarchy omarchy-settings; do
+  rm -rf -- "$output/pkgbuilds/$package/.omarchy"
+  bash -n "$output/pkgbuilds/$package/PKGBUILD"
+done
+python3 "$output/pkgbuilds/m1n1-aurora/validate-qualification.py" --build-only \
+  "$output/pkgbuilds/m1n1-aurora/build-qualification.json" \
+  02785a35e046901d5686ab9059b2c08b6256752a
+printf 'Prepared private, hardware-unqualified recipes in %s\n' "$output/pkgbuilds"
+printf '%s\n' 'No builds, downloads, target changes, publication or model admission performed.'

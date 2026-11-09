@@ -1,0 +1,644 @@
+diff --git c/src/kboot_atc.c i/src/kboot_atc.c
+index 6cafc95..0e90c00 100644
+--- c/src/kboot_atc.c
++++ i/src/kboot_atc.c
+@@ -908,11 +908,131 @@ cleanup:
+     printf("FDT: Unable to setup ATC tunables for %s - USB3/Thunderbolt will not work\n", adt_path);
+ }
+ 
++/*
++ * T6050/T6051 Type-C combo PHY (Linux drivers/phy/apple/atc-t6050-dp.c and
++ * atc-t6050-combo.h, binding apple,t6050-dp-phy.yaml). The driver applies each
++ * list at the base of one register bank, and its bank numbers are the ADT reg
++ * indices of /arm-io/atc-phyN (bank 44, the PIPE handler, is usb-drdN reg[3]).
++ * The ADT records therefore copy verbatim (reg_offset 0). The window repeats the
++ * kernel's own bounds check: a core bank runs to the end of the "core" resource.
++ */
++struct t6050_atc_tunable {
++    const char *adt_name;
++    const char *fdt_name;
++    bool from_drd;        /* /arm-io/usb-drdN instead of /arm-io/atc-phyN */
++    const char *resource; /* reg-names entry that holds the bank */
++    u32 bank_offset;      /* bank start inside that resource */
++};
++
++static const struct t6050_atc_tunable t6050_atc_tunables[] = {
++    {"tunable_ATC0AXI2AF", "apple,tunable-axi2af", false, "axi2af", 0},             /* bank 41 */
++    {"tunable_ATC_FABRIC", "apple,tunable-fabric", false, "fabric", 0},             /* bank 40 */
++    {"tunable_ATC_COMMON_CFG", "apple,tunable-common-cfg", false, "common-cfg", 0}, /* bank 43 */
++    {"tunable_ATC0AXI2AF_LIOA", "apple,tunable-lioa", false, "lioa", 0},            /* bank 42 */
++    {"tunable_LN0_RX_CFG_TX_OF_RXCLK", "apple,tunable-lane0-rx-clock", false, "core", 0xd000},
++    {"tunable_LN1_RX_CFG_TX_OF_RXCLK", "apple,tunable-lane1-rx-clock", false, "core", 0x1d000},
++    {"tunable_LN0_RX_EQ_DFLT", "apple,tunable-lane0-rx-eq", false, "core", 0xb000},  /* bank 18 */
++    {"tunable_LN1_RX_EQ_DFLT", "apple,tunable-lane1-rx-eq", false, "core", 0x1b000}, /* bank 27 */
++    {"tunable_AUSPLL_CORE", "apple,tunable-auspll", false, "core", 0x3200},          /* bank 8 */
++    {"tunable_AUS40CMN_SHM", "apple,tunable-aus40cmn-shm", false, "core", 0xa00},    /* bank 5 */
++    {"tunable_CIO4PLL_CORE", "apple,tunable-cio4pll", false, "core", 0x3a00},        /* bank 10 */
++    {"tunable_USB2PHY_DFLT", "apple,tunable-usb2-default", false, "usb2phy", 0},     /* bank 0 */
++    {"tunable_USB2PHY_HOST", "apple,tunable-usb2-host", false, "usb2phy", 0},        /* bank 0 */
++    {"tunable_PIPE_HANDLER_DEFAULT", "apple,tunable-pipe-default", true, "pipehandler", 0},
++};
++
++static int t6050_fdt_reg(void *dt, int node, const char *name, u64 *addr, u64 *size)
++{
++    int parent = fdt_parent_offset(dt, node), len;
++    int index = fdt_stringlist_search(dt, node, "reg-names", name);
++    const fdt32_t *reg = fdt_getprop(dt, node, "reg", &len);
++
++    if (parent < 0 || fdt_address_cells(dt, parent) != 2 || fdt_size_cells(dt, parent) != 2 ||
++        index < 0 || !reg || len < 0 || len % 16 || index >= len / 16)
++        return -1;
++    reg += 4 * index;
++    *addr = ((u64)fdt32_ld(reg) << 32) | fdt32_ld(reg + 1);
++    *size = ((u64)fdt32_ld(reg + 2) << 32) | fdt32_ld(reg + 3);
++    return *size ? 0 : -1;
++}
++
++/* The DT node whose "core" window is ADT atc-phyN reg[2] (soc ranges are 1:1). */
++static int t6050_find_phy(void *dt, u64 core)
++{
++    int node = -1;
++
++    while ((node = fdt_node_offset_by_compatible(dt, node, "apple,t6050-combo-phy")) >= 0) {
++        u64 addr, size;
++        if (!t6050_fdt_reg(dt, node, "core", &addr, &size) && addr == core)
++            return node;
++    }
++    return -1;
++}
++
++static void dt_copy_atc_t6050_tunables(void *dt, int port)
++{
++    char atc_path[32], drd_path[32];
++    int atc_trace[8], atc, drd, phy;
++    u64 core, core_size;
++
++    snprintf(atc_path, sizeof(atc_path), "/arm-io/atc-phy%d", port);
++    snprintf(drd_path, sizeof(drd_path), "/arm-io/usb-drd%d", port);
++    atc = adt_path_offset_trace(adt, atc_path, atc_trace);
++    if (atc < 0 || !adt_is_compatible_at(adt, atc, "atc-phy,t6050", 0))
++        return;
++    if (adt_get_reg(adt, atc_trace, "reg", 2, &core, NULL) < 0) {
++        printf("kboot: %s: no core reg\n", atc_path);
++        return;
++    }
++    phy = t6050_find_phy(dt, core);
++    if (phy < 0)
++        return; /* port not described in this DT (debug port, HDMI, ...) */
++    drd = adt_path_offset(adt, drd_path);
++    if (drd < 0)
++        return; /* no USB controller (the HDMI port): nothing to give pipe-default */
++
++    /* Producer-owned: replace whatever a hand-made DT already carries. */
++    for (size_t i = 0; i < ARRAY_SIZE(t6050_atc_tunables); i++)
++        fdt_delprop(dt, phy, t6050_atc_tunables[i].fdt_name);
++
++    if (t6050_fdt_reg(dt, phy, "core", &core, &core_size))
++        goto cleanup;
++
++    for (size_t i = 0; i < ARRAY_SIZE(t6050_atc_tunables); i++) {
++        const struct t6050_atc_tunable *t = &t6050_atc_tunables[i];
++        int src = t->from_drd ? drd : atc;
++        u64 addr, size;
++
++        if (src < 0 || t6050_fdt_reg(dt, phy, t->resource, &addr, &size) ||
++            t->bank_offset + 4 > size)
++            goto cleanup;
++        /* Appending to this node's properties does not move the node's own offset. */
++        struct adt_tunable_info info = {t->adt_name, t->fdt_name, 0, size - t->bank_offset, true};
++        if (dt_append_atc_tunable(dt, src, phy, &info))
++            goto cleanup;
++    }
++    printf("kboot: %s: T6050 combo PHY tunables passed\n", atc_path);
++    return;
++
++cleanup:
++    /* A half-filled set would probe; none makes the driver fail cleanly (-ENOENT). */
++    for (size_t i = 0; i < ARRAY_SIZE(t6050_atc_tunables); i++)
++        fdt_delprop(dt, phy, t6050_atc_tunables[i].fdt_name);
++    printf("FDT: Unable to set up T6050 ATC tunables for %s - this USB-C port will not probe\n",
++           atc_path);
++}
++
+ int kboot_setup_atc(void *dt)
+ {
+     char adt_path[32];
+     char fdt_alias[32];
+ 
++    if (chip_id == T6050 || chip_id == T6051) {
++        for (int i = 0; i < MAX_ATC_DEVS; ++i)
++            dt_copy_atc_t6050_tunables(dt, i);
++        return 0;
++    }
++
+     for (int i = 0; i < MAX_ATC_DEVS; ++i) {
+         memset(adt_path, 0, sizeof(adt_path));
+         snprintf(adt_path, sizeof(adt_path), "/arm-io/atc-phy%d", i);
+diff --git c/src/kboot_n1.c i/src/kboot_n1.c
+index 94c7ef1..105a45b 100644
+--- c/src/kboot_n1.c
++++ i/src/kboot_n1.c
+@@ -25,12 +25,14 @@
+  * (pcie_t6050.c); =2 also releases the N1's reset through the SMC before the training. =3 and =4
+  * are =1 and =2 with ANS started for the storage checks and stopped again after, for a stage-1 that
+  * leaves ANS stopped. Without the variable nothing here trains a link, and a port that is not up
+- * stays disabled.
++ * stays disabled unless pwren-gpios plus manual DART availability lets Linux train it.
++ * Host tunables are copied from this boot ADT; no cached board values are used.
+  */
+ 
+ #include "kboot_n1.h"
+ #include "adt.h"
+ #include "kboot.h"
++#include "malloc.h"
+ #include "pcie_t6050.h"
+ #include "string.h"
+ #include "utils.h"
+@@ -119,14 +121,47 @@ static int n1_set_control(void *dt, int host)
+         found++;
+     }
+     if (!found)
+-        printf("n1: no pci106b,1900 control function below the T6050 host\n");
++        printf("n1: no N1 control function\n");
+     return 0;
+ }
+ 
+-/* ADT pci-bridge<port> 24-byte tunable records -> (offset, 4, mask, value) cells on the DT port */
++/* ADT 24-byte tunable records `aprop` of ADT node `anode` -> (offset + add, 4, mask, value) cells */
++static int n1_copy_list(void *dt, int node, int anode, const char *aprop, const char *dprop,
++                        u32 add, bool required, u32 window_size)
++{
++    u32 len;
++    const struct adt_tunable_local *t = adt_getprop(adt, anode, aprop, &len);
++    /* rodata and relocations share one 128 KiB window: one short message for every refusal */
++    if (!t || !len || len % sizeof(*t) || len / sizeof(*t) > 512) {
++        printf("n1: %s not copied\n", aprop);
++        return required ? -1 : 0;
++    }
++    u32 n = len / sizeof(*t);
++    fdt32_t *cells = malloc(n * 4 * sizeof(fdt32_t));
++    if (!cells)
++        return -1;
++    bool ok = true;
++    for (u32 k = 0; k < n; k++) {
++        if (t[k].size != 4 || (t[k].offset & 3) || t[k].offset > UINT32_MAX - add ||
++            (t[k].mask >> 32) || (t[k].value >> 32) ||
++            (required && (window_size < 4 || (u64)t[k].offset + add > window_size - 4)))
++            ok = false;
++        cells[4 * k + 0] = cpu_to_fdt32(t[k].offset + add);
++        cells[4 * k + 1] = cpu_to_fdt32(4);
++        cells[4 * k + 2] = cpu_to_fdt32((u32)t[k].mask);
++        cells[4 * k + 3] = cpu_to_fdt32((u32)t[k].value);
++    }
++    int ret = ok ? fdt_setprop(dt, node, dprop, cells, n * 4 * sizeof(fdt32_t)) : 0;
++    if (!ok)
++        printf("n1: %s not copied\n", aprop);
++    free(cells);
++    return ret || (required && !ok) ? -1 : 0;
++}
++
++/* ADT pci-bridge<port> tunables -> apple,<name> on the DT root port */
+ static int n1_copy_tunables(void *dt, int port_node, int port)
+ {
+-    static const char *const props[] = {
++    static const char props[][29] = {
+         "apcie-config-tunables",        "pcie-rc-tunables",
+         "pcie-rc-gen3-shadow-tunables", "pcie-rc-gen4-shadow-tunables",
+         "pcie-rc-gen5-shadow-tunables",
+@@ -140,30 +175,30 @@ static int n1_copy_tunables(void *dt, int port_node, int port)
+         return 0;
+     }
+     for (size_t i = 0; i < ARRAY_SIZE(props); i++) {
+-        u32 len;
+-        const struct adt_tunable_local *t = adt_getprop(adt, anode, props[i], &len);
+-        if (!t || !len || len % sizeof(*t) || len / sizeof(*t) > 16) {
+-            printf("n1: %s %s missing or malformed, not copied\n", bridge, props[i]);
+-            continue;
+-        }
+-        u32 n = len / sizeof(*t);
+-        fdt32_t cells[16 * 4];
+-        bool ok = true;
+-        for (u32 k = 0; k < n; k++) {
+-            if (t[k].size != 4 || (t[k].offset & 3) || (t[k].mask >> 32) || (t[k].value >> 32))
+-                ok = false;
+-            cells[4 * k + 0] = cpu_to_fdt32(t[k].offset);
+-            cells[4 * k + 1] = cpu_to_fdt32(4);
+-            cells[4 * k + 2] = cpu_to_fdt32((u32)t[k].mask);
+-            cells[4 * k + 3] = cpu_to_fdt32((u32)t[k].value);
+-        }
+-        if (!ok) {
+-            printf("n1: %s %s has a record the kernel does not take, not copied\n", bridge,
+-                   props[i]);
+-            continue;
+-        }
+         snprintf(dtname, sizeof(dtname), "apple,%s", props[i]);
+-        if (fdt_setprop(dt, port_node, dtname, cells, n * 4 * sizeof(fdt32_t)))
++        if (n1_copy_list(dt, port_node, anode, props[i], dtname, 0, false, 0))
++            return -1;
++    }
++    return 0;
++}
++
++/* ADT apcie0 host lists -> apple,tunable-<name> on the DT host, for the kernel's own train */
++static int n1_copy_host_tunables(void *dt, int host)
++{
++    static const char lists[][14] = {"axi2af", "cio3pllcore", "pcieclkgen",
++                                     "phy",    "phy-ip-pll",  "phy-ip-auspma"};
++    /* Match the own J714s DT reg windows; reject before any Linux train. */
++    static const u32 bounds[] = {0x24000, 0x4000, 0x4000, 0x24000, 0x1b4000, 0x1b4000};
++    char aname[40], dname[40];
++    int anode = adt_path_offset(adt, apcie_path);
++    /* The own J714s kernel-train profile must never start with a partial list set. */
++    bool required = !fdt_node_check_compatible(dt, 0, "apple,j714s");
++
++    for (size_t i = 0; i < ARRAY_SIZE(lists); i++) {
++        snprintf(aname, sizeof(aname), "apcie-%s-tunables", lists[i]);
++        snprintf(dname, sizeof(dname), "apple,tunable-%s", lists[i]);
++        if (n1_copy_list(dt, host, anode, aname, dname, i == 1 ? 0x2200 : 0, required,
++                         bounds[i]))
+             return -1;
+     }
+     return 0;
+@@ -271,7 +306,7 @@ int kboot_setup_n1(void *dt)
+         printf("n1: no %s in the ADT\n", apcie_path);
+         return 0;
+     }
+-    if (n1_set_control(dt, host))
++    if (n1_set_control(dt, host) || n1_copy_host_tunables(dt, host))
+         return -1;
+ 
+     /* A port 0 training that stopped keeps port 0 down, even with a link up */
+@@ -325,16 +360,21 @@ int kboot_setup_n1(void *dt)
+         int port = ports[i].port;
+         u32 bus = ports[i].bus;
+         bool up = !(port == 0 && port0_failed) && n1_port_up(port, bus) == 1;
+-        const char *status = up ? "okay" : "disabled";
+-
+         port_node = fdt_path_offset(dt, ports[i].path);
+         if (port_node < 0 || n1_copy_tunables(dt, port_node, port))
+             return -1;
+         port_node = fdt_path_offset(dt, ports[i].path);
++        host = fdt_node_offset_by_compatible(dt, -1, "apple,t6050-pcie");
++        int dart = host < 0 ? host : n1_iommu_for_rid(dt, host, bus << 8);
++        /* Public kernel-train contract; never retry a failed legacy loader train. */
++        bool kernel = !up && !(port == 0 && port0_failed) && port_node >= 0 && dart >= 0 &&
++                      fdt_getprop(dt, port_node, "pwren-gpios", NULL) &&
++                      fdt_getprop(dt, dart, "apple,manual-availability", NULL);
++        const char *status = up || kernel ? "okay" : "disabled";
+         if (port_node < 0 || fdt_setprop_string(dt, port_node, "status", status))
+             return -1;
+         host = fdt_node_offset_by_compatible(dt, -1, "apple,t6050-pcie");
+-        int dart = host < 0 ? host : n1_iommu_for_rid(dt, host, bus << 8);
++        dart = host < 0 ? host : n1_iommu_for_rid(dt, host, bus << 8);
+         if (dart >= 0 && fdt_setprop_string(dt, dart, "status", status))
+             return -1;
+         printf("n1: port %d %s: root port%s %s\n", port, up ? "up" : "not up",
+diff --git c/src/main.c i/src/main.c
+index 136fcc6..8acb58d 100644
+--- c/src/main.c
++++ i/src/main.c
+@@ -30,6 +30,7 @@
+ #include "uart.h"
+ #include "uartproxy.h"
+ #include "usb.h"
++#include "usb_dwc3.h"
+ #include "usb_cdc.h"
+ #include "utils.h"
+ #include "wdt.h"
+@@ -335,7 +336,14 @@ next_stage:
+ #ifndef BRINGUP
+     if (chip_id != T8152) {
+         usb_iodev_shutdown();
++        if (!usb_dwc3_handoff_safe())
++            panic("USB DMA quiesce failed; refusing next stage\n");
++#ifdef T6050_NO_HOST_PREP
++        /* Test build: the kernel's apple,t6050-usb2-phy does the port setup alone. */
++        printf("T6050 host prep skipped\n");
++#else
+         usb_t6050_host_prep();
++#endif
+         /* Its firmware may still use memory the next stage will reuse. */
+         if (display_shutdown(DCP_SLEEP_IF_EXTERNAL) < 0) {
+             printf("Display handoff failed; returning to proxy\n");
+diff --git c/src/smp.c i/src/smp.c
+index 226a597..b15e261 100644
+--- c/src/smp.c
++++ i/src/smp.c
+@@ -50,6 +50,8 @@ u8 secondary_stacks_el3[MAX_EL3_CPUS][SECONDARY_STACK_SIZE] ALIGNED(0x4000);
+ static bool wfe_mode SMP_SHARED = false;
+ 
+ static int target_cpu SMP_SHARED;
++_Static_assert(MAX_CPUS > 0 && MAX_CPUS <= 64, "MAX_CPUS must fit the u64 CPU masks");
++
+ static int cpu_nodes[MAX_CPUS];
+ static struct spin_table spin_table[MAX_CPUS] SMP_SHARED;
+ 
+@@ -529,6 +531,11 @@ static int smp_init_t8152(void)
+ {
+     if (smp_initialized)
+         return 0;
++    /* cpu_nodes/cpu_info/spin_table/secondary_stacks are indexed by cpu-id up to 11. */
++    if (MAX_CPUS < 12) {
++        printf("SMP: T8152 needs MAX_CPUS >= 12 (built with %d)\n", MAX_CPUS);
++        return -1;
++    }
+ 
+     int path[8];
+     int pmgr = adt_path_offset_trace(adt, "/arm-io/pmgr-child", path);
+diff --git c/src/smp_asm.h i/src/smp_asm.h
+index 6b7c179..0feb9e0 100644
+--- c/src/smp_asm.h
++++ i/src/smp_asm.h
+@@ -3,7 +3,10 @@
+ #ifndef __SMP_ASM_H__
+ #define __SMP_ASM_H__
+ 
+-#define MAX_CPUS     32
++/* Override at build time, e.g. EXTRA_CFLAGS=-DMAX_CPUS=24, to shrink secondary_stacks. */
++#ifndef MAX_CPUS
++#define MAX_CPUS 32
++#endif
+ #define MAX_EL3_CPUS 4
+ 
+ #define SECONDARY_STACK_SIZE 0x10000
+diff --git c/src/usb.c i/src/usb.c
+index 8bb7da6..578ec7d 100644
+--- c/src/usb.c
++++ i/src/usb.c
+@@ -78,6 +78,15 @@ static bool usb_is_initialized = false;
+ #define PIPEHANDLER_MUX_CTRL_USB4_TUNNEL 0x11
+ #define PIPEHANDLER_MUX_CTRL_DUMMY       0x22
+ 
++/*
++ * T6050 moved the MUX_CTRL fields: clock select in bits 6:4, data select in bits 1:0
++ * (T8103: 5:3 and 2:0). The same dummy/dummy selection is 0x42 there; 0x22 reads as the
++ * USB4 clock with dummy data, a state the kernel's T6050 combo PHY refuses to park from.
++ */
++#define PIPEHANDLER_MUX_CTRL_T6050_CLK   GENMASK(6, 4)
++#define PIPEHANDLER_MUX_CTRL_T6050_DATA  GENMASK(1, 0)
++#define PIPEHANDLER_MUX_CTRL_T6050_DUMMY 0x42
++
+ #define PIPEHANDLER_LOCK_REQ 0x10
+ #define PIPEHANDLER_LOCK_ACK 0x14
+ #define PIPEHANDLER_LOCK_EN  BIT(0)
+@@ -162,6 +171,35 @@ static int usb_drd_get_regs(u32 idx, struct usb_drd_regs *regs)
+     return 0;
+ }
+ 
++/*
++ * Select the dummy PIPE producer in the T6050 field layout, as the kernel's combo PHY does
++ * (combo_reset_assert(), apple_t6050_usb3_pipe_cold_dummy()): controller in reset and clamped,
++ * then clock off, dummy data, dummy clock. The kernel PHY accepts only 0, 2 or 0x42 here when
++ * dwc3-apple first asserts the controller reset. The caller releases the reset afterwards.
++ */
++static void usb_pipehandler_park_t6050(u32 idx, uintptr_t pipehandler)
++{
++    u32 before = read32(pipehandler + PIPEHANDLER_MUX_CTRL);
++
++    /* An earlier stage (the chainloading m1n1's proxy) may have left the controller running. */
++    clear32(pipehandler + PIPEHANDLER_AON_GEN, PIPEHANDLER_AON_GEN_DWC3_RESET_N);
++    set32(pipehandler + PIPEHANDLER_AON_GEN, PIPEHANDLER_AON_GEN_DWC3_FORCE_CLAMP_EN);
++    mask32(pipehandler + PIPEHANDLER_MUX_CTRL, PIPEHANDLER_MUX_CTRL_T6050_CLK, 0);
++    udelay(10);
++    mask32(pipehandler + PIPEHANDLER_MUX_CTRL, PIPEHANDLER_MUX_CTRL_T6050_DATA,
++           FIELD_PREP(PIPEHANDLER_MUX_CTRL_T6050_DATA, 2));
++    udelay(10);
++    mask32(pipehandler + PIPEHANDLER_MUX_CTRL, PIPEHANDLER_MUX_CTRL_T6050_CLK,
++           FIELD_PREP(PIPEHANDLER_MUX_CTRL_T6050_CLK, 4));
++    udelay(10);
++
++    u32 after = read32(pipehandler + PIPEHANDLER_MUX_CTRL);
++    bool parked = (after & (PIPEHANDLER_MUX_CTRL_T6050_CLK | PIPEHANDLER_MUX_CTRL_T6050_DATA)) ==
++                  PIPEHANDLER_MUX_CTRL_T6050_DUMMY;
++    printf("usb: usb-drd%u: PIPE %s the dummy producer, MUX_CTRL %#x -> %#x\n", idx,
++           parked ? "on" : "NOT on", before, after);
++}
++
+ int usb_phy_bringup(u32 idx)
+ {
+     char path[24];
+@@ -199,7 +237,10 @@ int usb_phy_bringup(u32 idx)
+     write32(usb_regs.atc + USB2PHY_MISCTUNE, 0x008c0813);
+     write32(usb_regs.atc + USB2PHY_USBCTL, USB2PHY_USBCTL_RUN);
+ 
+-    write32(usb_regs.drd_regs_unk3 + PIPEHANDLER_MUX_CTRL, PIPEHANDLER_MUX_CTRL_DUMMY);
++    if (chip_id == T6050 || chip_id == T6051)
++        usb_pipehandler_park_t6050(idx, usb_regs.drd_regs_unk3);
++    else
++        write32(usb_regs.drd_regs_unk3 + PIPEHANDLER_MUX_CTRL, PIPEHANDLER_MUX_CTRL_DUMMY);
+     write32(usb_regs.drd_regs_unk3 + PIPEHANDLER_AON_GEN, PIPEHANDLER_AON_GEN_DWC3_RESET_N);
+     write32(usb_regs.drd_regs_unk3 + PIPEHANDLER_NONSELECTED_OVERRIDE, 0x9332);
+ 
+diff --git c/src/usb_dwc3.c i/src/usb_dwc3.c
+index 36b4b35..ad8fa29 100644
+--- c/src/usb_dwc3.c
++++ i/src/usb_dwc3.c
+@@ -3,6 +3,18 @@
+ #include "usb_dwc3.h"
+ #include "malloc.h"
+ 
++static bool usb_dma_unsafe;
++
++void usb_dwc3_mark_dma_unsafe(void)
++{
++    usb_dma_unsafe = true;
++}
++
++bool usb_dwc3_handoff_safe(void)
++{
++    return !usb_dma_unsafe;
++}
++
+ typedef struct dwc3_hs_dev dwc3_hs_dev_t;
+ dwc3_hs_dev_t *usb_dwc3_hs_init(uintptr_t regs, dart_dev_t *dart);
+ void usb_dwc3_hs_shutdown(dwc3_hs_dev_t *dev);
+diff --git c/src/usb_dwc3.h i/src/usb_dwc3.h
+index 8d793cd..ff3f5ba 100644
+--- c/src/usb_dwc3.h
++++ i/src/usb_dwc3.h
+@@ -17,6 +17,9 @@ typedef enum _cdc_acm_pipe_id_t {
+ dwc3_dev_t *usb_dwc3_init(uintptr_t regs, dart_dev_t *dart);
+ dwc3_dev_t *usb_dwc3_init_mode(uintptr_t regs, dart_dev_t *dart, bool superspeed);
+ void usb_dwc3_shutdown(dwc3_dev_t *dev);
++/* Sticky across failed init/cleanup: memory may not be handed to another OS. */
++void usb_dwc3_mark_dma_unsafe(void);
++bool usb_dwc3_handoff_safe(void);
+ 
+ void usb_dwc3_handle_events(dwc3_dev_t *dev);
+ 
+diff --git c/src/usb_dwc3_impl.inc i/src/usb_dwc3_impl.inc
+index 0395784..78bc1b8 100644
+--- c/src/usb_dwc3_impl.inc
++++ i/src/usb_dwc3_impl.inc
+@@ -1986,8 +1986,10 @@ void usb_dwc3_shutdown(dwc3_dev_t *dev)
+         dev->dma_unsafe = true;
+         usb_debug_printf("controller reset failed during shutdown; preserving DMA mappings\n");
+     }
+-    if (dev->dma_unsafe)
++    if (dev->dma_unsafe) {
++        usb_dwc3_mark_dma_unsafe();
+         return;
++    }
+ 
+     /* unmap and free dma buffers */
+     dart_unmap(dev->dart, TRB_BUFFER_IOVA, TRB_BUFFER_SIZE);
+diff --git c/tests/run-t8152-smp-bounds.sh i/tests/run-t8152-smp-bounds.sh
+new file mode 100644
+index 0000000..fdeaa8f
+--- /dev/null
++++ i/tests/run-t8152-smp-bounds.sh
+@@ -0,0 +1,25 @@
++#!/bin/sh
++# Host test of smp_init_t8152() (src/smp.c) against MAX_CPUS overrides, with ASan/UBSan: below 12
++# it must refuse without an out-of-bounds write; at 12 and the default 32 it accepts 12 CPUs.
++#
++#   sh tests/run-t8152-smp-bounds.sh
++set -eu
++cd "$(dirname "$0")/.."
++tmp=$(mktemp -d)
++trap 'rm -rf "$tmp"' EXIT HUP INT TERM
++
++awk '/^static int t8152_cpu_index\(/ { f = 1 } f { print } f && /^}$/ { exit }' src/smp.c \
++    > "$tmp/t8152_smp.inc"
++awk '/^static int smp_init_t8152\(/ { f = 1 } f { print } f && /^}$/ { exit }' src/smp.c \
++    >> "$tmp/t8152_smp.inc"
++grep -q 'smp_init_t8152(void)' "$tmp/t8152_smp.inc"
++
++fail=0
++for n in 8 11 12 24 32; do
++    ${CC:-cc} -std=gnu11 -O1 -g -Wall -Wno-unused-function -Wno-unused-parameter \
++        -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all \
++        -DMAX_CPUS=$n -I"$tmp" tests/t8152_smp_bounds_host.c -o "$tmp/t8152-$n"
++    "$tmp/t8152-$n" || fail=1
++done
++[ $fail = 0 ] && echo "T8152 SMP bounds: every MAX_CPUS passes"
++exit $fail
+diff --git c/tests/t8152_smp_bounds_host.c i/tests/t8152_smp_bounds_host.c
+new file mode 100644
+index 0000000..3a0dea8
+--- /dev/null
++++ i/tests/t8152_smp_bounds_host.c
+@@ -0,0 +1,123 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * Host test: smp_init_t8152() (the real function, extracted from src/smp.c by
++ * tests/run-t8152-smp-bounds.sh) on a fake J873g ADT with 12 CPUs, built with the MAX_CPUS given
++ * by -DMAX_CPUS. Below 12 it must refuse without touching the per-CPU arrays (ASan checks the
++ * bounds); at 12 or more it must accept all 12 CPUs.
++ */
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++typedef uint64_t u64;
++typedef uint32_t u32;
++typedef uint16_t u16;
++typedef uint8_t u8;
++
++#define BIT(n)  (1ULL << (n))
++#define T8152   0x8152
++#define MPIDR_EL1 0
++
++struct spin_table {
++    u64 mpidr;
++    u64 flag;
++};
++struct cpu_info {
++    bool valid;
++    u8 die;
++    u8 cluster;
++    u8 core;
++    u64 impl_reg;
++};
++
++static const void *adt = (void *)1;
++static u32 board_id = 0x24;
++static int cpu_nodes[MAX_CPUS];
++static struct spin_table spin_table[MAX_CPUS];
++static struct cpu_info cpu_info[MAX_CPUS];
++static bool smp_initialized, wfe_mode;
++static u64 cpu_start_base, boot_cpu_mpidr;
++static int boot_cpu_idx = -1;
++
++static bool in_el2(void)
++{
++    return true;
++}
++#define mrs(r)    ((u64)0) /* boot CPU 0 */
++#define msr(r, v) ((void)(v))
++
++enum { PMGR = 5, CPUS = 10, CPU0 = 100 };
++static int adt_path_offset_trace(const void *a, const char *path, int *offsets)
++{
++    offsets[0] = PMGR;
++    return strcmp(path, "/arm-io/pmgr-child") ? -1 : PMGR;
++}
++static int adt_path_offset(const void *a, const char *path)
++{
++    return strcmp(path, "/cpus") ? -1 : CPUS;
++}
++static bool adt_is_compatible(const void *a, int node, const char *c)
++{
++    return (node == 0 && !strcmp(c, "J873gAP")) || (node == PMGR && !strcmp(c, "pmgr2,t8152"));
++}
++static const void *adt_getprop(const void *a, int node, const char *name, u32 *len)
++{
++    static const u16 maps[] = {0, 0x128};
++    if (node != PMGR || strcmp(name, "reg-maps"))
++        return NULL;
++    *len = sizeof(maps);
++    return maps;
++}
++static int adt_get_reg(const void *a, int *path, const char *prop, int idx, u64 *base, u64 *size)
++{
++    *base = 0x300730000ULL;
++    *size = 0x8000;
++    return 0;
++}
++static int adt_get_child_count(const void *a, int node)
++{
++    return node == CPUS ? 12 : 0;
++}
++static int adt_first_child_offset(const void *a, int node)
++{
++    return CPU0;
++}
++static int adt_next_sibling_offset(const void *a, int node)
++{
++    return node + 1;
++}
++static int adt_getprop_copy(const void *a, int node, const char *name, void *val, size_t len)
++{
++    u32 id = node - CPU0;
++    if (!strcmp(name, "cpu-id") && len == 4) {
++        memcpy(val, &id, 4);
++    } else if (!strcmp(name, "reg") && len == 4) {
++        u32 reg = ((id / 6) << 8) | (id % 6);
++        memcpy(val, &reg, 4);
++    } else if (!strcmp(name, "cpu-impl-reg") && len == 16) {
++        u64 impl[2] = {0x210000000ULL + id * 0x100000ULL, 0x10000};
++        memcpy(val, impl, 16);
++    } else {
++        return -1;
++    }
++    return len;
++}
++#define ADT_GETPROP(a, n, name, val)       adt_getprop_copy(a, n, name, (val), sizeof(*(val)))
++#define ADT_GETPROP_ARRAY(a, n, name, arr) adt_getprop_copy(a, n, name, (arr), sizeof(arr))
++#define ADT_FOREACH_CHILD(a, node)                                                                 \
++    for (int _child_count = adt_get_child_count(a, node); _child_count; _child_count = 0)          \
++        for (node = adt_first_child_offset(a, node); _child_count--;                               \
++             node = adt_next_sibling_offset(a, node))
++
++#include "t8152_smp.inc"
++
++int main(void)
++{
++    int ret = smp_init_t8152();
++    bool ok = MAX_CPUS < 12 ? ret == -1 && !smp_initialized && boot_cpu_idx == -1
++                            : ret == 0 && smp_initialized && boot_cpu_idx == 0;
++    printf("MAX_CPUS=%d: smp_init_t8152() = %d (%s)\n", MAX_CPUS, ret,
++           ok ? "ok" : "FAIL");
++    return !ok;
++}

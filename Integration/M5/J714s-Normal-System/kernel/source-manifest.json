@@ -1,0 +1,507 @@
+{
+  "format": 1,
+  "repository": "https://github.com/rolotrealanis98/linux",
+  "base_commit": "34f2f5bb4d03bbe3acce237cb67af8dc9972aa4a",
+  "patch_sha256": "616d8e7f21f68c63eb17f266665e517d43079eb378eac9f8a152eb9d8c653aed",
+  "tracked_changes": 61,
+  "new_files": 22,
+  "source_files": {
+    "Documentation/admin-guide/kernel-parameters.txt": {
+      "sha256": "3daa0cfa304816853ee65a7e108e890ec0666c73a184478bc0ee98c61ec132fb",
+      "bytes": 321583,
+      "new": false,
+      "spdx": null
+    },
+    "Documentation/devicetree/bindings/arm/apple.yaml": {
+      "sha256": "c5cdde6b08edfac29b6277e3d8aa0d81e03b0caf086c7dde603d9a719501a6e9",
+      "bytes": 16691,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause"
+    },
+    "Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml": {
+      "sha256": "23bff470fa85bf3a2002fbf91eda113c9292d2c19e4d7c59ca73a6c16a088548",
+      "bytes": 5093,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) AND GPL-2.0-only"
+    },
+    "Documentation/devicetree/bindings/interrupt-controller/apple,aic2.yaml": {
+      "sha256": "6051bc6b0f7123174bc1878fe5eb5682dbc498ad256dc80d0109dd4845ce97bd",
+      "bytes": 4572,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/iommu/apple,dart.yaml": {
+      "sha256": "09a417e592dd5c11d1c47c1bfd3452b9f94ace1ea611925acc0b6c6622dc46c0",
+      "bytes": 7096,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/iommu/apple,sart.yaml": {
+      "sha256": "aaf066bf95529119930c4880f4e6657a51890027cea7330fb2c73b46bfdefd1e",
+      "bytes": 1916,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause"
+    },
+    "Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml": {
+      "sha256": "82bc6ae9ff2f0c6d0f08af3fbd85dbc09d8b5e52e9f8b5c42fcf75f18751017f",
+      "bytes": 6351,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause"
+    },
+    "Documentation/devicetree/bindings/mfd/apple,smc.yaml": {
+      "sha256": "218400733e099efcc2db81b593e50668784836aef3754360bf7cab269f502d53",
+      "bytes": 3421,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/net/bluetooth/apple,centauri.yaml": {
+      "sha256": "b25368197c21d4727ace207c2911e32de189dbb5c5ad5890640d3e15625d46f5",
+      "bytes": 1344,
+      "new": true,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "Documentation/devicetree/bindings/net/wireless/apple,centauri.yaml": {
+      "sha256": "4763444226b1b0386dd2cd1c559f071070a6c9906fa3304ed8362fadd0fc30df",
+      "bytes": 1471,
+      "new": true,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml": {
+      "sha256": "c62624c7d056679b4f4a27200df184ccf221669d163afd98a09f5bc01ba17ec5",
+      "bytes": 5699,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause"
+    },
+    "Documentation/devicetree/bindings/pci/apple,pcie.yaml": {
+      "sha256": "d6a283ddb56702671e40abcb136326f4c072ce893a62dda1c790abae9d849092",
+      "bytes": 18213,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml": {
+      "sha256": "6937e2a3879a32aaae0455692fa22a0c35b71d4007efd6efff85e440426375f9",
+      "bytes": 6538,
+      "new": true,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml": {
+      "sha256": "22332542450460d8b5843fda5a2667568d2a17748708cc1c037d42d6471478b4",
+      "bytes": 2063,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/sound/apple,macaudio.yaml": {
+      "sha256": "4c6b10810c272df46da3a83dd2b430de0c1afd3cccbf793a4768bb6337e9bfb3",
+      "bytes": 6884,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/spi/apple,qspi.yaml": {
+      "sha256": "3b96547d4c81083814f524b7872efe9bffe5fefd23f43be054c13c4eda2b12f9",
+      "bytes": 1524,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/usb/apple,dwc3.yaml": {
+      "sha256": "bb885412f63924220249cbbc98197eca26b6e49abb747e01fb94d87f5eb2fb8f",
+      "bytes": 4149,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "Documentation/devicetree/bindings/watchdog/apple,wdt.yaml": {
+      "sha256": "44e1919f97a475d48de5a108ce6fd4cbc40d03580129662296852ebf8f13f813",
+      "bytes": 1550,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)"
+    },
+    "arch/arm64/boot/dts/apple/Makefile": {
+      "sha256": "749cf4b8892fa0b16be68815767ed68749a3ddf6d0c1d3db8f7615c5f0fd5cb3",
+      "bytes": 5467,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0"
+    },
+    "arch/arm64/boot/dts/apple/t6050-base.dtsi": {
+      "sha256": "7a83f2b3e86da6f62d0a2b657f8dadb0107348f7626e0d757f8bafc32b198538",
+      "bytes": 7880,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-die0.dtsi": {
+      "sha256": "73cfa1c3dfe4e66b5eb4193de7ebfd271683821ee3075b81599f1f1573bb7030",
+      "bytes": 35898,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-dieX.dtsi": {
+      "sha256": "a47d012f86d9998cf8bdd48ebd1fff25f9d5875cc419334037cecd8e9a486278",
+      "bytes": 11548,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-j714s.dts": {
+      "sha256": "6e99781f62eb7994c912a8c8e12dca96e559b2fe742b4d3641eef77c8a906044",
+      "bytes": 32587,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-j716c.dts": {
+      "sha256": "ae6da0f8ff71d577cd578e4ca771459443f7c4a57eb7cb6dc9a3a3e223d53623",
+      "bytes": 5315,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-j716s.dts": {
+      "sha256": "a220382e994e795f6a95db56e6455729782dc77078da40b988c802b52edab29c",
+      "bytes": 28649,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-j775d.dts": {
+      "sha256": "1eb8ad7fd7e35ec4cab59a098f122609fd9792b65076811f8ded7cfc77a9881e",
+      "bytes": 17012,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-max.dtsi": {
+      "sha256": "dac3670abf43a8bbdc100c871c1004e94905f5680ee5fa95784df4577c42f928",
+      "bytes": 3826,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/boot/dts/apple/t6050-ultra.dtsi": {
+      "sha256": "6e33c9a5a141471c4fe7905b64e388198681e5c247c7bb7261f945b4949a3a8a",
+      "bytes": 17457,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0+ OR MIT"
+    },
+    "arch/arm64/configs/j714s-gpu-local.config": {
+      "sha256": "58589354d5331c2f1529fc2abce5419857bc44b2fe561a369d24a644642fa224",
+      "bytes": 2772,
+      "new": true,
+      "spdx": null
+    },
+    "arch/arm64/configs/j716s-gpu.config": {
+      "sha256": "0c92c3dd51007839d24799c064bb2bfc794fade43d173909e7eaf3715fbe90eb",
+      "bytes": 739,
+      "new": true,
+      "spdx": null
+    },
+    "arch/arm64/configs/j716s.config": {
+      "sha256": "4f6784a26eeee508cfc84e2008f155bd0affe8758caa970372687cd4f2b20934",
+      "bytes": 6842,
+      "new": true,
+      "spdx": null
+    },
+    "arch/arm64/kernel/idle.c": {
+      "sha256": "61ddc3f2d43ee490b75488e0cfc962465bf5146273a5e0639855aec8293f7e4e",
+      "bytes": 3707,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/bluetooth/Kconfig": {
+      "sha256": "eca11bb8ca428204b56e38e1aeaecc863050373e0867a820fcec7f502161b353",
+      "bytes": 15678,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0"
+    },
+    "drivers/bluetooth/Makefile": {
+      "sha256": "9fde9049060acb43c286a6e22216544cf470bfab7ecb3c4ffff435a36ca72eaf",
+      "bytes": 1972,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0"
+    },
+    "drivers/bluetooth/btcentauri.c": {
+      "sha256": "216001e835ba1925a229caeb9e95cd354a2fd151020650c9647c4cdca8dca5ce",
+      "bytes": 25885,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/cpufreq/apple-soc-cpufreq.c": {
+      "sha256": "4b2106967d88f663a6e1f358c68ca97dc27728373422b6238819212b2afac86d",
+      "bytes": 52896,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/gpio/gpio-macsmc.c": {
+      "sha256": "33a8a5e317529cbaaeae7e2eb033bb25fa5f479749daccf0955cf69f82608fbd",
+      "bytes": 12077,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/gpu/drm/asahi/driver.rs": {
+      "sha256": "4c6b0bdf9c4cdb6367b351d1105c837b9039f930250ce7bc8ca1703117e7f4fd",
+      "bytes": 25505,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs": {
+      "sha256": "bf1e6efdeb271e4a5589fdcc43924ea43a3b175ba1e9867a0e568137f04cfced",
+      "bytes": 138140,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/gpu/drm/asahi/hw/t6050.rs": {
+      "sha256": "a18788fe6fd81b7a9b83faf4185d5da8f3adea7e3d469d97726844a8c6ad3489",
+      "bytes": 14244,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/gpu/drm/sysfb/simpledrm.c": {
+      "sha256": "c927cf0e452c448b1f147aa383b6dff30958e71ddb4f8811110aec165c25aef6",
+      "bytes": 26527,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/hid/dockchannel-hid/dockchannel-hid.c": {
+      "sha256": "0108c71992788d71f2cba039142b7971c51371520381d11953bb8d44af00c082",
+      "bytes": 48653,
+      "new": false,
+      "spdx": "* SPDX-License-Identifier: GPL-2.0 OR MIT"
+    },
+    "drivers/hwmon/macsmc-hwmon.c": {
+      "sha256": "a08f396125a111bb2a8f4a28874b5e37f773269f12a5b153200e04fa8e45a4b2",
+      "bytes": 45895,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/input/misc/macsmc-input.c": {
+      "sha256": "26426ffc2d33a0facd5cbc1a6656cb1e20c9ee89971465f8032bd161da993db2",
+      "bytes": 9532,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/iommu/apple-dart.c": {
+      "sha256": "8848caa119098dd47f41187d8e396bf183d5bd26bb4a92b7df3d74a938f6a1a8",
+      "bytes": 179913,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/mfd/macsmc.c": {
+      "sha256": "e54f1d7ce0b2427388db04debb1efe9a0a38f7638ed8d0e6cfe3c57f66f8ab68",
+      "bytes": 20581,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/net/wireless/apple/Kconfig": {
+      "sha256": "d941538b50b149b78d8266edce66ec11229b27dbc02798c6759c2eaf157e399b",
+      "bytes": 1036,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/net/wireless/apple/centauri/Makefile": {
+      "sha256": "84a21f2c4c67e9a4c42fdac9d258c78eda447e4b39be334f6694232e07b5044e",
+      "bytes": 203,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/net/wireless/apple/centauri/centauri.h": {
+      "sha256": "9b2724481ef2f47c3079b27980725e90a44b28b793c2909b527cbd4676f61558",
+      "bytes": 2183,
+      "new": false,
+      "spdx": null
+    },
+    "drivers/net/wireless/apple/centauri/centauri_ipc.c": {
+      "sha256": "5ea9041fc7b06f19e99d10c9e3583c5c7344b7bbd6b43e75b3d5a58c5d5f3870",
+      "bytes": 15407,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/net/wireless/apple/centauri/centauri_pci.c": {
+      "sha256": "30bc692527e67ad69463c6753cc012d2ed33fbaf857c640ea81c2980171feba4",
+      "bytes": 12382,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/net/wireless/apple/centauri/centauri_port.c": {
+      "deleted": true
+    },
+    "drivers/net/wireless/apple/centauri/centauri_wifi.c": {
+      "sha256": "b248aa67e01ad320ff7e03ce4db65d61117f2badf88cb3c3fc39c08d6aa2a76c",
+      "bytes": 63991,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/nvme/host/apple.c": {
+      "sha256": "b36b78eb60703bbbc25cd189ed35e8232496529829a1d38cc14b8feeda19e0a1",
+      "bytes": 80983,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0"
+    },
+    "drivers/pci/controller/pcie-apple.c": {
+      "sha256": "97ebd70ff43034c997959f2c2254de2e631f0f7f6d9ad6d1e00555a85499e0bb",
+      "bytes": 162246,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0"
+    },
+    "drivers/pci/probe.c": {
+      "sha256": "419e622d10da74aa0975d91c15ac6b38d9290e2322345306bc64da1a43599188",
+      "bytes": 94660,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0"
+    },
+    "drivers/phy/apple/Kconfig": {
+      "sha256": "11512a6fdcffabbed363ea1948f437866bec1ff0a6e91ff352483c6a2d866432",
+      "bytes": 2978,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause"
+    },
+    "drivers/phy/apple/Makefile": {
+      "sha256": "1ddcecb6883e5dd316ffaccceeb3726d79ff85151e5ed6cb76cd751aeb3c3692",
+      "bytes": 360,
+      "new": false,
+      "spdx": "# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause"
+    },
+    "drivers/phy/apple/atc-t6050-combo.h": {
+      "sha256": "1e9ce055f50d80f783268771761a218013d54b781a11385475395e056263eb5e",
+      "bytes": 14161,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0-only OR MIT */"
+    },
+    "drivers/phy/apple/atc-t6050-dp.c": {
+      "sha256": "45bfeb455607e2b86506dd57f84e696a17b2a57c6ad29fdd5f1fad7b0cbe1789",
+      "bytes": 24714,
+      "new": true,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/phy/apple/atc-t6050-typec-data.h": {
+      "sha256": "220d8916efb90ae44b03a661ecfd9ab62ca04d2725eca8692c562acdccbf84ad",
+      "bytes": 38394,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0-only OR MIT */"
+    },
+    "drivers/phy/apple/usb-t6050/apple_t6050_usb2_reset.h": {
+      "sha256": "90254e21c3dcf31445272f77683bf66e7c3f918020ddff1088ec7caf9d49b5fa",
+      "bytes": 870,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "drivers/phy/apple/usb-t6050/apple_t6050_usb3_bist.h": {
+      "sha256": "026ba62c6aa64d5d2dafe96eafd7fdd8ba4c7f0c8ae991e4bb27850e80ce4471",
+      "bytes": 2636,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h": {
+      "sha256": "5b4d0a60548bc366b43d7929e03669b73204bb807e9d762dae15df1d1823fc22",
+      "bytes": 5633,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "drivers/phy/apple/usb-t6050/apple_t6050_usb_phy.h": {
+      "sha256": "ddb23960a87a2ee129b551598b8369f37b65325a1e929d727b6b669680dd9f96",
+      "bytes": 13407,
+      "new": true,
+      "spdx": "/* SPDX-License-Identifier: MIT */"
+    },
+    "drivers/pinctrl/pinctrl-apple-gpio.c": {
+      "sha256": "c91cdbed5bce646e0f18e6677cbd58aeaf2ac5fce8df75d8abac0fc243fc1f6d",
+      "bytes": 19202,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    },
+    "drivers/pmdomain/apple/pmgr-pwrstate.c": {
+      "sha256": "a631e8053ff1d3f149d5a5ad4a40e2d709286dd43886226feb400b71336bb2e5",
+      "bytes": 23027,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/power/supply/macsmc-power.c": {
+      "sha256": "7ef03857ce2844d95e2072c6cac892e35db9ea233bd9980467cda039a10d00cb",
+      "bytes": 38079,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/reset/reset-apple-cio.c": {
+      "sha256": "d392705d4d31354dd2c76a650b09371539a0b696e591eb8dd761c750f33a54c9",
+      "bytes": 10555,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/soc/apple/aop.rs": {
+      "sha256": "92c1d3e774e13386143fa3bbf687b70ff285fbcc91ab78f1fce89ec413dcf923",
+      "bytes": 109996,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "drivers/soc/apple/rtkit.c": {
+      "sha256": "b4c072b69a9f9a2972ea714a666b849ef468a660e24879afe4b2839403a41189",
+      "bytes": 53936,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: (GPL-2.0-only OR MIT) AND GPL-2.0-only"
+    },
+    "drivers/soc/apple/sart.c": {
+      "sha256": "2538fbfaf72399015b34a7e060828be1b529a21862162f2641e0c5c90ff69ded",
+      "bytes": 12778,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: (GPL-2.0-only OR MIT) AND GPL-2.0-only"
+    },
+    "drivers/usb/dwc3/dwc3-apple.c": {
+      "sha256": "02ff8a86625a16bc45fa56aea10d09c32535627b90b50a6ffe8af2d457ebef51",
+      "bytes": 40997,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0"
+    },
+    "include/linux/pci.h": {
+      "sha256": "3918679d91f252b75ad903b23094ea26ccd8142ddcdbd8f6c7df5d71330bb823",
+      "bytes": 108444,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0 */"
+    },
+    "include/linux/soc/apple/dart.h": {
+      "sha256": "8cc5852eea2e711487bdda8611322a0c8c3cad864f821b1297051e93c64933da",
+      "bytes": 6382,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0-only OR MIT */"
+    },
+    "include/linux/soc/apple/rtkit.h": {
+      "sha256": "9cd272a6819ee8ffc1ced6af8c01926b3e48db31316621402ae7956f479a1b1b",
+      "bytes": 12328,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0-only OR MIT */"
+    },
+    "include/net/bluetooth/hci_core.h": {
+      "sha256": "42a65a3fc1573c5f9a7b6af4ae616b6656f394eae1d1e50bb693fa2d9b32c056",
+      "bytes": 71027,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0 */"
+    },
+    "net/bluetooth/hci_sync.c": {
+      "sha256": "3f8a54031f359a9c1ebddedae27f15d1726c518644ded8c511e6b1c9e6544249",
+      "bytes": 216204,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0"
+    },
+    "rust/bindings/bindings_helper.h": {
+      "sha256": "ad885efe21180a6f9282a92970dba38be7b7e4bfd2638972d3d9c564fe79f6e4",
+      "bytes": 9349,
+      "new": false,
+      "spdx": "/* SPDX-License-Identifier: GPL-2.0 */"
+    },
+    "rust/kernel/soc/apple/rtkit.rs": {
+      "sha256": "2db5f27de9f163311ae0e37950140aaeb0fcb49686b2fc957a929b544f2844a4",
+      "bytes": 17197,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: (GPL-2.0-only OR MIT) AND GPL-2.0-only"
+    },
+    "sound/soc/apple/aop_audio.rs": {
+      "sha256": "1e1fa3abc31b21b82366021ba0046d4068814c69923c7bee58572a8631e21787",
+      "bytes": 54445,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "sound/soc/apple/aop_t8140.rs": {
+      "sha256": "365ac0e5478e4381552abf5726bfe593629346cb1733a553f1e833fec3f28beb",
+      "bytes": 174169,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only OR MIT"
+    },
+    "sound/soc/apple/macaudio.c": {
+      "sha256": "bb524891fe9bb0b6bd85a0e2bf9366bdf10f8215b1139dd50b5d2379fb1ae616",
+      "bytes": 84847,
+      "new": false,
+      "spdx": "// SPDX-License-Identifier: GPL-2.0-only"
+    }
+  },
+  "contains_firmware_or_adt_dump": false,
+  "hardware_qualification": "Earlier split-payload J714s evidence only; normal U-Boot/Limine chain is unqualified."
+}

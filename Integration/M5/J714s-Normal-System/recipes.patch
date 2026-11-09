@@ -1,0 +1,329 @@
+diff --git i/pkgbuilds/linux-aurora/PKGBUILD w/pkgbuilds/linux-aurora/PKGBUILD
+index 6515514..cbcdc5e 100644
+--- i/pkgbuilds/linux-aurora/PKGBUILD
++++ w/pkgbuilds/linux-aurora/PKGBUILD
+@@ -8,14 +8,14 @@
+ # for Macs on the Omarchy edge channel. It reaches rc and stable only after
+ # cold-boot qualification on M1 and M2.
+ 
+-_auroraver=7.2.11
+-_aurorarel=15
++_auroraver=7.3.0
++_aurorarel=15.j714s2
+ pkgrel=1
+ 
+ # Immutable pin on omacom/linux-aurora (branch integration/aurora). Every bump is a
+ # PR that moves _commit; its cold-boot qualification is recorded in
+ # the PR's attached qualification evidence before channel publication.
+-_commit=b798f2b0c767e3d780896cff2f57e19e412bf954
++_commit=34f2f5bb4d03bbe3acce237cb67af8dc9972aa4a
+ 
+ # Any m1n1 1.6.1 loads these device trees. The Neo's own Stage 2 comes from the
+ # image, so the floor stays where M1 and M2 users' m1n1-aurora already meets it.
+@@ -28,22 +28,24 @@ _desc="AArch64 Apple Silicon (Aurora kernel)"
+ pkgver="${_auroraver}.aurora${_aurorarel}"
+ arch=('aarch64')
+ groups=('omarchy-platform-apple-silicon')
+-url="https://github.com/omacom/linux-aurora"
++url="https://github.com/rolotrealanis98/linux"
+ license=('GPL2')
+ 
+ makedepends=(
+-  base-devel bc dtc kmod libelf pahole cpio perl rustup clang llvm lld clang18 llvm18 lld18
++  base-devel bc dtc kmod libelf pahole cpio perl rustup clang llvm lld
+   tar xz xmlto python git patch
+ )
+ options=('!strip')
+-source=(validate-config.py configure.sh "linux::git+https://github.com/omacom/linux-aurora.git#commit=${_commit}"
+-        rust-toolchain.toml bindgen-kernel.py config)
++source=(validate-config.py configure.sh "linux::git+https://github.com/rolotrealanis98/linux.git#commit=${_commit}"
++        rust-toolchain.toml bindgen-kernel.py config j714s-frozen-source.patch j714s-required.config)
+ sha256sums=('aca7420a18139474da62a81c77fc6e5c3f25001f872b6e11e18605cd892aa4c3'
+             'b95c0f0ddf106f3861e0e62a746af6a881fb8e0f356a892961f9e86062877400'
+             'SKIP'
+-            '443a9c4613172ea352f49b114818a1d75ab048ec4bd2d75b388a7ab3a8a1f046'
++            'd71a5756f6803008c92fd5b14bb377baa538cd56a5674970bfaea3584a60d291'
+             '84a03d5fea19cae243c89f50c1736c639622d25d4d1de8d7d53ebd8f603c0f62'
+-            '98f76a885d81711013aad47e2ee13f000923191e43321738ec8f381690bf5160')
++            'e59b330b4e72fa5279b4b98d89e93b6c6df0f88a2db3213f4514aabd0943e36e'
++            '616d8e7f21f68c63eb17f266665e517d43079eb378eac9f8a152eb9d8c653aed'
++            'e51d86a5bab2d50f31fa3a56b75b3ef6ea614f80f4d4f4394ef538c5d0382c2e')
+ 
+ # Kbuild takes ARCH literally and knows arm64, not aarch64.
+ export ARCH=arm64
+@@ -54,11 +56,8 @@ export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EP
+ # Kbuild assigns BINDGEN itself, so an environment-only value is ignored.
+ # Supply the wrapper and its real tool in every makepkg phase, not just prepare.
+ _make() {
+-  AURORA_BINDGEN_REAL="$srcdir/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen" \
+-    RUSTFMT="$(rustup which --toolchain 1.99.0 rustfmt)" \
+-    LIBCLANG_PATH="${AURORA_LIBCLANG_PATH:-/usr/lib/llvm18/lib}" \
+-    RUSTUP_TOOLCHAIN=1.85.0 make LLVM="${AURORA_LLVM:-/usr/lib/llvm18/bin/}" \
+-    BINDGEN="$srcdir/bindgen-kernel.py" LOCALVERSION= "$@"
++  RUSTUP_TOOLCHAIN=1.98.1 RUSTFMT="$(rustup which --toolchain 1.98.1 rustfmt)" \
++    make LLVM=1 BINDGEN="$srcdir/private-bindgen/bin/bindgen" LOCALVERSION= "$@"
+ }
+ 
+ _check_kernelrelease() {
+@@ -83,31 +82,17 @@ prepare() {
+     patch -Np1 < "../$src"
+   done
+ 
+-  echo "Pinning the Rust toolchain..."
+-  cp ../rust-toolchain.toml .
+-
+-  # ALARM's clang18, llvm18 and lld18 install their tools under this prefix only.
+-  export LLVM="${AURORA_LLVM:-/usr/lib/llvm18/bin/}"
+-  local clang_command="clang${LLVM}"
+-  [[ $LLVM != */ ]] || clang_command="${LLVM}clang"
+-  "$clang_command" --version | head -1 | grep -Eq 'clang version 18\.' || {
+-    echo 'linux-aurora requires the qualified LLVM 18 build environment' >&2; return 1;
++  # Keep the public generator's pinned source checks and layout assertions.
++  rustup toolchain install 1.98.1 --profile minimal --component rust-src,rustfmt
++  clang --version | head -1 | grep -Eq 'clang version 23\.' || {
++    echo 'This candidate requires the LLVM 23 toolchain used by its source baseline' >&2
++    return 1
+   }
+-  # Bindgen's checked output and the compatibility adapter need formatted Rust.
+-  rustup toolchain install 1.99.0 --profile minimal --component rustfmt
+-  RUSTUP_TOOLCHAIN=1.99.0 RUSTFMT="$(rustup which --toolchain 1.99.0 rustfmt)" \
+-    python3 tools/aurora-bindgen/build.py --output-dir "$srcdir/private-bindgen"
+-  export AURORA_BINDGEN_REAL="$srcdir/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
+-  export RUSTUP_TOOLCHAIN=1.85.0
+-  rustup toolchain install 1.85.0 --profile minimal --component rust-src
+-  # Keep shared kexec support: apple_piodma_lock_transition() in
+-  # pcie-apple-piodma-diag.c acquires the kernel kexec blocker before Neo radio
+-  # admission retains DMA/firmware ownership. Both kexec
+-  # load APIs and execution reject while that blocker is held.
+-  # Keep config's -ARCH suffix: omarchy-mac-boot and update-m1n1 discover
+-  # device trees under /lib/modules/*-ARCH.
+-  source ../configure.sh
+-  configure_kernel "$PWD/.." "$PWD/build/base" || return
++  RUSTUP_TOOLCHAIN=1.98.1 python3 tools/aurora-bindgen/build.py --output-dir "$srcdir/private-bindgen"
++  mkdir -p build/base
++  cp ../config build/base/.config
++  _make O="$PWD/build/base" olddefconfig
++  python3 ../validate-config.py ../j714s-required.config build/base/.config
+   _make O="$PWD/build/base" prepare
+   _make -s O="$PWD/build/base" kernelrelease > build/base/version
+ 
+@@ -118,8 +103,6 @@ prepare() {
+ build() {
+   cd $_srcname
+   echo "Building base..."
+-  export LLVM="${AURORA_LLVM:-/usr/lib/llvm18/bin/}" RUSTUP_TOOLCHAIN=1.85.0
+-  export AURORA_BINDGEN_REAL="$srcdir/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
+   _make O="$PWD/build/base" -j"${OMARCHY_BUILD_JOBS:-10}" Image modules dtbs
+ }
+ 
+diff --git i/pkgbuilds/linux-aurora/rust-toolchain.toml w/pkgbuilds/linux-aurora/rust-toolchain.toml
+index 912fc4d..210717f 100644
+--- i/pkgbuilds/linux-aurora/rust-toolchain.toml
++++ w/pkgbuilds/linux-aurora/rust-toolchain.toml
+@@ -1,3 +1,3 @@
+ [toolchain]
+-channel = "1.85.0"
++channel = "1.98.1"
+ components = ["rustc", "cargo", "rust-src"]
+diff --git i/pkgbuilds/m1n1-aurora/PKGBUILD w/pkgbuilds/m1n1-aurora/PKGBUILD
+index c858472..83c05be 100644
+--- i/pkgbuilds/m1n1-aurora/PKGBUILD
++++ w/pkgbuilds/m1n1-aurora/PKGBUILD
+@@ -1,8 +1,8 @@
+ # omacom/m1n1; ordinary updates refresh ESP Stage 2, never enroll Stage 1.
+ pkgname=m1n1-aurora
+-pkgver=1.6.1.aurora22
++pkgver=1.6.1.aurora22.j714s2
+ pkgrel=1
+-pkgdesc='Omarchy Apple Silicon bootloader from omacom/m1n1'
++pkgdesc='Private J714s normal-chain loader with the demonstrated G17S and N1 handoffs'
+ arch=('aarch64')
+ groups=('omarchy-platform-apple-silicon')
+ url='https://github.com/omacom/m1n1'
+@@ -13,18 +13,20 @@ conflicts=('m1n1' 'aura' 'm1n1-neo')
+ replaces=('aura' 'm1n1-neo')
+ makedepends=('git' 'clang' 'lld' 'llvm' 'rustup' 'make' 'python')
+ options=('!strip' '!debug')
+-_commit=bc79acc434e612ffcb95bfc7cb2fd7543afac5f2
++_commit=02785a35e046901d5686ab9059b2c08b6256752a
+ source=("m1n1::git+$url.git#commit=$_commit"
+         build-qualification.json validate-qualification.py
+-        bootlogo_48.bin bootlogo_128.bin bootlogo_256.bin)
+-sha256sums=('SKIP' '858cebe85070161109b3ce4cc97d14e70d0ea09bbda282fa9666b730f9cabce1'
++        bootlogo_48.bin bootlogo_128.bin bootlogo_256.bin j714s-frozen-source.patch)
++sha256sums=('SKIP' 'c278c77c5c6d3e782b6724d0fbe438ded4e1dbd4a46845bc0391b3a4feb25e33'
+             '43578b83ebea180319b64c9b63377dab6148e997e6f75fd4abcb325484f7ca95'
+             '6668050653645711ad7523fe2abeb4cbe85a92c875f3eec754b6db23cea2191c'
+             'b19cb017645c7a9068ea0be9b6bb394131d7ca11b28093cf6caa1ffca74b0a4e'
+-            '9c659b392aacfa31c62c638003d2257abfdbe17919b5c90cde4c4e62f87addab')
++            '9c659b392aacfa31c62c638003d2257abfdbe17919b5c90cde4c4e62f87addab'
++            'd634a7aba77bc72b5d4ed45ac964fd5c7b9bb0ab46cc7a70a6385771aaa1b1f8')
+ 
+ prepare() {
+   [[ $(git -C "$srcdir/m1n1" rev-parse HEAD) == "$_commit" ]]
++  patch -d "$srcdir/m1n1" -p1 --fuzz=0 --batch --no-backup-if-mismatch < "$srcdir/j714s-frozen-source.patch"
+   rustup toolchain install 1.89.0 --profile minimal --target aarch64-unknown-none-softfloat
+   # Preserve this package's existing artwork; only its source changes.
+   for size in 48 128 256; do
+@@ -36,11 +38,16 @@ build() {
+   cd "$srcdir/m1n1"
+   export RUSTUP_TOOLCHAIN=1.89.0
+   make clean
+-  make -j"${OMARCHY_BUILD_JOBS:-10}" EXTRA_CFLAGS=-Os RELEASE=1 CHAINLOADING=1 USE_CLANG=1
++  make -j"${OMARCHY_BUILD_JOBS:-10}" EXTRA_CFLAGS="-Os -DMAX_CPUS=24 -DT6050_NO_HOST_PREP" RELEASE=1 CHAINLOADING=1 USE_CLANG=1
+   install -Dm644 build/m1n1.bin "$srcdir/stage1/m1n1-raw.bin"
+   install -Dm644 build/m1n1.macho "$srcdir/stage1/m1n1.macho"
+   make clean
+-  make -j"${OMARCHY_BUILD_JOBS:-10}" EXTRA_CFLAGS=-Os RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1
++  make -j"${OMARCHY_BUILD_JOBS:-10}" EXTRA_CFLAGS="-Os -DMAX_CPUS=24 -DT6050_NO_HOST_PREP" RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1
++}
++
++check() {
++  cd "$srcdir/m1n1"
++  bash tests/run-t8152-smp-bounds.sh
+ }
+ 
+ package() {
+diff --git i/pkgbuilds/m1n1-aurora/build-qualification.json w/pkgbuilds/m1n1-aurora/build-qualification.json
+index ee69261..36c374b 100644
+--- i/pkgbuilds/m1n1-aurora/build-qualification.json
++++ w/pkgbuilds/m1n1-aurora/build-qualification.json
+@@ -1,6 +1,7 @@
+ {
+-  "source_commit": "bc79acc434e612ffcb95bfc7cb2fd7543afac5f2",
++  "source_commit": "02785a35e046901d5686ab9059b2c08b6256752a",
+   "hardware_tested": false,
+   "stage1_auto_enrollment": false,
+-  "promotion_gate": "before rc/stable promotion: native build, cold-boot upgrade pairs on M1/M2/M3/Neo, matched Neo boot, repair and upgrade qualification"
++  "promotion_gate": "private developer candidate only: exact J714s normal-chain boot, matched kernel/modules/Mesa, encrypted fresh install, restart/poweroff, update and recovery remain unqualified; no model admission or publication",
++  "source_patch_sha256": "d634a7aba77bc72b5d4ed45ac964fd5c7b9bb0ab46cc7a70a6385771aaa1b1f8"
+ }
+diff --git i/pkgbuilds/mesa-aurora/PKGBUILD w/pkgbuilds/mesa-aurora/PKGBUILD
+index a26a48b..3d0104a 100644
+--- i/pkgbuilds/mesa-aurora/PKGBUILD
++++ w/pkgbuilds/mesa-aurora/PKGBUILD
+@@ -3,20 +3,20 @@ pkgname=('mesa-aurora' 'vulkan-aurora')
+ epoch=1
+ # Development versions sort by real UTC date, full reachable commit count,
+ # then source hash. Hash-only same-day repins can downgrade existing packages.
+-pkgver=26.3.0_devel.20261031.231483.a1969111475
++pkgver=26.3.0_devel.20261109.j714s2.043a4c5
+ pkgrel=1
+ pkgdesc='Aurora Asahi Gallium, Zink and Honeykrisp'
+ arch=('aarch64')
+ groups=('omarchy-platform-apple-silicon')
+-url='https://github.com/omacom/mesa'
++url='https://github.com/rolotrealanis98/mesa'
+ license=('MIT')
+ # integration/aurora after omacom/mesa#20: memory-scope flushes for G17P host-read
+ # and aliased-memory barriers, on top of the omacom/mesa#19 sync.
+ # Full-history `git rev-list --count` for this pin is 231483 (not first-parent).
+ # omacom/mesa#20 was checked on the Neo through a private driver, not this package's
+ # build or hardware qualification.
+-_commit=a19691114759e2c0507f3502cf6166ef2c6e2e33
+-_src=mesa-omacom
++_commit=043a4c58080c4951fea3797fe45fc6898ce77632
++_src=mesa-j714s-043a4c5
+ # Matched to the DRM UAPI in omacom/linux-aurora integration/aurora.
+ # The drivers never link SPIRV-Tools, which Arch Linux ARM moves without a
+ # versioned soname. Asahi needs LLVM only to precompile its CL shaders, so a
+@@ -34,13 +34,13 @@ makedepends=('git' 'meson' 'ninja' 'python-mako' 'python-yaml' 'python-packaging
+              'lm_sensors' 'zlib' 'zstd' 'xcb-util-keysyms')
+ # Use a distinct VCS cache name when changing repository origin. Existing
+ # makepkg caches named mesa belong to Aurora and reject a different URL.
+-source=("$_src::git+$url.git#commit=$_commit")
+-sha256sums=('SKIP')
++source=("$_src::git+$url.git#commit=$_commit" j714s-gpu.env)
++sha256sums=('SKIP' '9085055821d4337d97fbb9b299bd222b7cac251a3dda5348a192a6c27319517e')
+ options=('!debug')
+ _options=(-Dplatforms=x11,wayland
+   -Dgallium-drivers=asahi,zink,softpipe,llvmpipe -Dvulkan-drivers=asahi
+   -Degl=enabled -Dgbm=enabled -Dglx=dri -Dgles1=enabled -Dgles2=enabled
+-  -Dglvnd=enabled -Dvideo-codecs=all -Dvulkan-layers=
++  -Dglvnd=enabled -Dvideo-codecs= -Dvulkan-layers=
+   -Dexpat=enabled -Dzstd=enabled -Dlmsensors=enabled -Dlibunwind=disabled -Dvalgrind=disabled)
+ # arch-meson's flags without --auto-features enabled, which would require
+ # features this driver set cannot have, such as the VA front end.
+@@ -109,6 +109,7 @@ package_mesa-aurora() {
+   provides=("mesa=$epoch:$pkgver" 'mesa-libgl' 'opengl-driver' 'libgbm.so')
+   conflicts=('mesa')
+   cp -a "$srcdir/mesa-stage/usr" "$pkgdir/"
++  install -Dm644 "$srcdir/j714s-gpu.env" "$pkgdir/usr/lib/environment.d/90-omarchy-j714s-gpu.conf"
+   rm "$pkgdir/usr/lib/libvulkan_asahi.so"
+   rm "$pkgdir"/usr/share/vulkan/icd.d/*asahi*.json
+   rmdir "$pkgdir/usr/share/vulkan/icd.d" "$pkgdir/usr/share/vulkan" 2>/dev/null || true
+diff --git i/pkgbuilds/uboot-aurora/PKGBUILD w/pkgbuilds/uboot-aurora/PKGBUILD
+index 75894b3..80e6aab 100644
+--- i/pkgbuilds/uboot-aurora/PKGBUILD
++++ w/pkgbuilds/uboot-aurora/PKGBUILD
+@@ -1,12 +1,12 @@
+ pkgname=uboot-aurora
+-pkgver=2026.07.aurora6
++pkgver=2026.07.aurora6.j714s2
+ pkgrel=1
+-pkgdesc='Aurora common Apple Silicon U-Boot with Neo MTP handoff (Omarchy build: silent console)'
++pkgdesc='Private J714s normal-chain U-Boot with live ANS adoption'
+ arch=('aarch64')
+ groups=('omarchy-platform-apple-silicon')
+-url='https://github.com/aurora-silicon/u-boot'
++url='https://github.com/edimoldovan/u-boot'
+ license=('GPL-2.0-or-later')
+-_commit=d30213eadcaa886f4206d7661b61bc6cf7837828
++_commit=70e990818a895454780797beedc6a7bdac9e2fd6
+ provides=("uboot-asahi=$pkgver")
+ conflicts=('uboot-asahi' 'uboot-asahi-j700')
+ replaces=('uboot-asahi-j700')
+--- a/pkgbuilds/omarchy-aurora-firmware/PKGBUILD
++++ b/pkgbuilds/omarchy-aurora-firmware/PKGBUILD
+@@ -2,2 +2,2 @@
+-pkgver=20261014
+-pkgrel=7
++pkgver=20261014.j714s1
++pkgrel=1
+@@ -15,2 +15,2 @@
+-sha256sums=('976e0a2f6be5cca72fde400f91ccdd2df63efcf5cf3fd11dbc3da6d47354a0e5'
+-            'e00eaa7dc582c958bf39e912a131c3366f4146c1913c2eb9b542de5c07761529'
++sha256sums=('e2d6d6008bfde44ba871da2fcaae22b409d52ea8695fcf672bc3b06d786f823e'
++            'abd1fd7f2c40561311356c5748f964687e45771ad461ef7786fbdbda2aff530d'
+@@ -18 +18 @@
+-            'eae8ea44ed6bec92cc0fa111e872bdb4717d365482337de7b9def8532b10123b'
++            'dd35eb53b873612a78db23aafae107f690aefc0d97daaf3b5ceab5a218018c27'
+--- a/pkgbuilds/omarchy-aurora-firmware/aurora-firmware-order.conf
++++ b/pkgbuilds/omarchy-aurora-firmware/aurora-firmware-order.conf
+@@ -6,0 +7,2 @@
++# Private J714s candidate: first explicit probe follows vendor extraction.
++blacklist apple_centauri
+--- a/pkgbuilds/omarchy-aurora-firmware/aurora-peripheral-firmware.sh
++++ b/pkgbuilds/omarchy-aurora-firmware/aurora-peripheral-firmware.sh
+@@ -11,0 +12,25 @@
++
++# This candidate admits only its exact J714s profile; no sibling board inherits it.
++if grep -zFxq 'apple,j714s' "$compatible"; then
++  device_tree=${AURORA_DT_ROOT:-/sys/firmware/devicetree/base}
++  names=()
++  shopt -s globstar nullglob
++  for property in "$device_tree"/**/firmware-name; do
++    node=${property%/firmware-name}
++    [[ -f $node/compatible ]] || continue
++    grep -zFxq 'pci106b,1900' "$node/compatible" || continue
++    name=$(tr -d '\0' < "$property")
++    [[ $name =~ ^apple/centauri/[a-z0-9]{1,15}-ftab\.bin$ ]] || continue
++    names+=("$name")
++  done
++  if (( ${#names[@]} != 1 )); then
++    echo 'Aurora: no unique Centauri firmware identity; N1 probe deferred' >&2
++    exit 0
++  fi
++  if has_firmware "${names[0]}"; then
++    "$modprobe_command" apple_centauri
++  else
++    echo 'Aurora: Centauri firmware missing; N1 probe deferred' >&2
++  fi
++  exit 0
++fi
+--- a/pkgbuilds/omarchy-aurora-firmware/aurora-vendor-order.install
++++ b/pkgbuilds/omarchy-aurora-firmware/aurora-vendor-order.install
+@@ -14,0 +15 @@
++  add_binary tr
+@@ -17,0 +19 @@
++  add_module apple_centauri
