@@ -1083,3 +1083,15 @@ declare -f build_payload | awk '/prepare_toolchain/ { toolchain = NR } /mac-imag
   END { exit !(toolchain && check > toolchain) }' ||
   fail "build_payload checks /inputs after prepare_toolchain"
 pass "the in-container inputs check waits for the toolchain's python3"
+
+# The named profile is validated on the host, but the imported build rootfs
+# also lacks python3 until prepare_toolchain installs it. Resolve the trust
+# directory only after that package transaction and before candidate-key use.
+! declare -f container_main | grep -q 'image_profile.py.* trust' ||
+  fail "container_main selects the image profile before python3 is installed"
+declare -f prepare_toolchain | awk '/could not install the build tools/ { tools = NR }
+  /image_profile.py.* trust/ { profile = NR }
+  /trust_key .*candidate_trust_dir\/public.asc/ { candidate_key = NR }
+  END { exit !(tools && profile > tools && candidate_key > profile) }' ||
+  fail "prepare_toolchain does not select the profile after Python and before trusting its key"
+pass "the container selects the named profile after toolchain Python is installed"

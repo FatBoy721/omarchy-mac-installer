@@ -510,6 +510,9 @@ prepare_toolchain() {
   pacman -Su --noconfirm --needed arch-install-scripts btrfs-progs dosfstools e2fsprogs gnupg jq python \
     >>"$logs/toolchain.log" 2>&1 || fail "could not install the build tools (logs/toolchain.log)"
 
+  candidate_trust_dir=$(python3 "$ROOT/builder/image_profile.py" trust "$candidate_profile") ||
+    fail "unknown image profile: $candidate_profile"
+
   fetch \
     --output "$work/$ASAHI_KEYRING_FILE" "$(field asahi_alarm_server)/$ASAHI_KEYRING_FILE" ||
     fail "could not download $ASAHI_KEYRING_FILE"
@@ -1778,7 +1781,6 @@ interrupted() {
 container_main() {
   (($# == 0)) || usage_error "--in-container takes no arguments"
   candidate_profile=${MAC_IMAGE_PROFILE:-production}
-  candidate_trust_dir=$(python3 "$ROOT/builder/image_profile.py" trust "$candidate_profile") || fail "unknown image profile: $candidate_profile"
   lane=$(field omarchy_channel)
   [[ $(input_image_profile /inputs) == "$candidate_profile" ]] || fail "image profile differs from the checked inputs"
   if [[ -d $lab_access_dir ]]; then
