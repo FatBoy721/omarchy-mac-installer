@@ -6,7 +6,7 @@ candidate_root=$(realpath "${BASH_SOURCE[0]%/*}")
 repository_root=$(realpath "$candidate_root/../../..")
 recipe_base=30a33ee435db8f4a158ca41f82e91cc34bcd2e3b
 recipe_remote=https://github.com/omacom/omarchy-pkgs.git
-patch_sha256=fedc6ac8675456429922126640064632203a7edcbba54688afd2083f86391e1c
+patch_sha256=956439fd4e95e7c0b22356f1a1ff40a1bd7c5a29d81f290ad3fe71edc695ede8
 
 runtime_patch_sha256=0ea9081a72f4dbcdeb30a68fb534547776d401c7d888259fb3dca757fcf9ccad
 

@@ -45,9 +45,9 @@ index 6515514..cbcdc5e 100644
 +            'd71a5756f6803008c92fd5b14bb377baa538cd56a5674970bfaea3584a60d291'
              '84a03d5fea19cae243c89f50c1736c639622d25d4d1de8d7d53ebd8f603c0f62'
 -            '98f76a885d81711013aad47e2ee13f000923191e43321738ec8f381690bf5160')
-+            'e59b330b4e72fa5279b4b98d89e93b6c6df0f88a2db3213f4514aabd0943e36e'
++            '440f7eb51a094ec9a734b988373e9e50546b6adc523f539a2f89603e311d89ef'
 +            '616d8e7f21f68c63eb17f266665e517d43079eb378eac9f8a152eb9d8c653aed'
-+            'e51d86a5bab2d50f31fa3a56b75b3ef6ea614f80f4d4f4394ef538c5d0382c2e')
++            '744299ef58dc2547bd2dd1343871655bf127950241fbf8502fa2373d21fd67f7')
  
  # Kbuild takes ARCH literally and knows arm64, not aarch64.
  export ARCH=arm64
@@ -287,7 +287,7 @@ index 75894b3..80e6aab 100644
 +            'abd1fd7f2c40561311356c5748f964687e45771ad461ef7786fbdbda2aff530d'
 @@ -18 +18 @@
 -            'eae8ea44ed6bec92cc0fa111e872bdb4717d365482337de7b9def8532b10123b'
-+            'dd35eb53b873612a78db23aafae107f690aefc0d97daaf3b5ceab5a218018c27'
++            '12dd7ef1308e62da501189a5905d6b8cbab8bffa6aab91bc652a45e87d8f79bd'
 --- a/pkgbuilds/omarchy-aurora-firmware/aurora-firmware-order.conf
 +++ b/pkgbuilds/omarchy-aurora-firmware/aurora-firmware-order.conf
 @@ -6,0 +7,2 @@
@@ -325,5 +325,7 @@ index 75894b3..80e6aab 100644
 +++ b/pkgbuilds/omarchy-aurora-firmware/aurora-vendor-order.install
 @@ -14,0 +15 @@
 +  add_binary tr
-@@ -17,0 +19 @@
+@@ -17 +18,2 @@
+-  add_module mt7932-fullmac
++  add_module mt7932-fullmac?
 +  add_module apple_centauri
