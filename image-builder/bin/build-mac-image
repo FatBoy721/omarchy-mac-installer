@@ -444,10 +444,12 @@ verify_database() {
     fail "${file##*/} is not the database the inputs pin"
 }
 
-# The pinned repositories behind the candidate set, in the order transactions
-# search them. A candidate set keeps the Apple profile's order, [omarchy] last;
-# a channel set takes its runtime's (read_repository_order).
-repository_order=(asahi-alarm core extra alarm aur omarchy)
+# The pinned repositories behind a candidate set, in transaction search order.
+# The admitted candidate set is always first. The Omarchy database precedes
+# ALARM extra so desktop packages with exact-version dependencies (for example
+# omarchy-hyprland-titlebars and its matching Hyprland) resolve as built. A
+# channel set instead takes its runtime's (read_repository_order).
+repository_order=(asahi-alarm core omarchy extra alarm aur)
 
 # Every repository a transaction reads, in repository_order behind the
 # candidate set: name, pinned sha256 (none for the set) and remote server.

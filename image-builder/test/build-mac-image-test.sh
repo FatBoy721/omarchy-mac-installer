@@ -47,9 +47,9 @@ field() {
 # ── repositories ───────────────────────────────────────────────────────────
 render_config /repos /cache >"$scratch/pacman.conf"
 sections=$(sed -n 's/^\[\(.*\)\]$/\1/p' "$scratch/pacman.conf" | paste -sd' ' -)
-[[ $sections == "options omarchy-candidates asahi-alarm core extra alarm aur omarchy omarchy-aarch64" ]] ||
-  fail "the candidate set is first, then the Apple profile's order: $sections"
-pass "the candidate set comes first, then asahi-alarm, Arch Linux ARM and [omarchy]"
+[[ $sections == "options omarchy-candidates asahi-alarm core omarchy extra alarm aur omarchy-aarch64" ]] ||
+  fail "the candidate set is first, then pinned core and Omarchy before ALARM extra: $sections"
+pass "the candidate set comes first, with pinned Omarchy before ALARM extra"
 
 files=$(grep -c '^Server = file://' "$scratch/pacman.conf")
 ((files == 2)) && grep -Fxq 'Server = file:///repos/omarchy-candidates' "$scratch/pacman.conf" &&
@@ -906,10 +906,10 @@ runtime_template "$RUNTIME_TEMPLATE"
   candidates=$candidates
   fail() { builder_fail "$@"; }
   read_repository_order
-  [[ ${repository_order[*]} == "asahi-alarm core extra alarm aur omarchy" ]] ||
-    fail "a candidate set keeps the Apple profile's order: ${repository_order[*]}"
+  [[ ${repository_order[*]} == "asahi-alarm core omarchy extra alarm aur" ]] ||
+    fail "a candidate set searches the pinned Omarchy database before ALARM extra: ${repository_order[*]}"
 )
-pass "a channel image searches [omarchy] first, as its runtime's Apple template does; a candidate set keeps [omarchy] last"
+pass "a channel image follows its runtime template; a candidate set keeps admitted packages first and Omarchy before ALARM extra"
 
 runtime_template "$(sed '/^\[aur\]/,$d' <<<"$RUNTIME_TEMPLATE")"
 (
@@ -948,20 +948,38 @@ pass "a runtime template that names other repositories than the pinned ones, or 
 # [omarchy] in a channel image, as on the installed Mac.
 if command -v pacman >/dev/null 2>&1; then
   sync_db() {
-    local repository=$1 version=$2 tree=$scratch/db-$1
-    mkdir -p "$tree/hyprland-$version" "$scratch/repos/$repository"
-    printf '%%FILENAME%%\nhyprland-%s-aarch64.pkg.tar.zst\n\n%%NAME%%\nhyprland\n\n%%VERSION%%\n%s\n\n%%ARCH%%\naarch64\n\n%%CSIZE%%\n1\n' \
-      "$version" "$version" >"$tree/hyprland-$version/desc"
-    bsdtar -czf "$scratch/dbpath/sync/$repository.db" -C "$tree" "hyprland-$version"
+    local repository=$1 tree=$scratch/db-$1 entry name version depends
+    shift
+    mkdir -p "$tree" "$scratch/repos/$repository"
+    for entry in "$@"; do
+      IFS='|' read -r name version depends <<<"$entry"
+      mkdir -p "$tree/$name-$version"
+      {
+        printf '%%FILENAME%%\n%s-%s-aarch64.pkg.tar.zst\n\n%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%ARCH%%\naarch64\n\n%%CSIZE%%\n1\n' \
+          "$name" "$version" "$name" "$version"
+        [[ -z $depends ]] || printf '%%DEPENDS%%\n%s\n\n' "$depends"
+      } >"$tree/$name-$version/desc"
+    done
+    (cd "$tree" && bsdtar -czf "$scratch/dbpath/sync/$repository.db" -- *)
   }
   mkdir -p "$scratch/dbpath/sync"
-  sync_db omarchy 0.52.0-1
-  sync_db extra 0.51.1-2
-  for repository in omarchy-candidates asahi-alarm core alarm aur omarchy-aarch64; do
+  sync_db omarchy 'hyprland|0.57.1-2|' 'omarchy-hyprland-titlebars|0.3.0-4|hyprland=0.57.1'
+  sync_db extra 'hyprland|0.57.2-1|'
+  candidate_names=(omarchy omarchy-settings omarchy-mac omarchy-mac-boot linux-aurora m1n1-aurora uboot-aurora \
+    aurora-audio alsa-ucm-conf-aurora speakerguardd omarchy-aurora-firmware mesa-aurora vulkan-aurora aurora-bless \
+    limine-mkinitcpio-hook)
+  candidate_entries=()
+  for name in "${candidate_names[@]}"; do
+    candidate_entries+=("$name|1-1|")
+  done
+  sync_db omarchy-candidates "${candidate_entries[@]}"
+  for repository in asahi-alarm core alarm aur omarchy-aarch64; do
     bsdtar -czf "$scratch/dbpath/sync/$repository.db" --files-from /dev/null
   done
   resolved() {
-    pacman --config "$1" --dbpath "$scratch/dbpath" --noconfirm -Sp --print-format '%r %v' hyprland 2>/dev/null
+    local config=$1
+    shift
+    pacman --config "$config" --dbpath "$scratch/dbpath" --noconfirm -Sp --print-format '%r %n %v' "$@" 2>/dev/null
   }
   (
     candidates=$channel/candidates
@@ -969,13 +987,23 @@ if command -v pacman >/dev/null 2>&1; then
     fail() { builder_fail "$@"; }
     read_repository_order
     render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = aarch64/' >"$scratch/channel.conf"
-    [[ $(resolved "$scratch/channel.conf") == "omarchy 0.52.0-1" ]] ||
+    [[ $(resolved "$scratch/channel.conf" hyprland) == "omarchy hyprland 0.57.1-2" ]] ||
       fail "a channel image takes hyprland from [omarchy]: $(resolved "$scratch/channel.conf")"
   )
   render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = aarch64/' >"$scratch/candidate.conf"
-  [[ $(resolved "$scratch/candidate.conf") == "extra 0.51.1-2" ]] ||
-    fail "a candidate set's order still takes it from Arch Linux ARM: $(resolved "$scratch/candidate.conf")"
-  pass "pacman takes a package both [omarchy] and Arch Linux ARM carry from [omarchy] in a channel image"
+  candidate_requests=()
+  for name in "${candidate_names[@]}"; do
+    candidate_requests+=("omarchy-candidates/$name")
+  done
+  resolved_output=$(resolved "$scratch/candidate.conf" omarchy-hyprland-titlebars hyprland "${candidate_requests[@]}") ||
+    fail "a candidate transaction resolves the exact Omarchy Hyprland dependency: $(resolved "$scratch/candidate.conf" omarchy-hyprland-titlebars hyprland)"
+  grep -Fxq 'omarchy hyprland 0.57.1-2' <<<"$resolved_output" ||
+    fail "a candidate set resolves the titlebars-required Hyprland from [omarchy]: $resolved_output"
+  for name in "${candidate_names[@]}"; do
+    grep -Fxq "omarchy-candidates $name 1-1" <<<"$resolved_output" ||
+      fail "admitted candidate $name does not resolve from [omarchy-candidates]: $resolved_output"
+  done
+  pass "pacman resolves the exact titlebars/Hyprland pair from [omarchy] and all 15 admitted packages from [omarchy-candidates]"
 else
   echo "skip - pacman resolution of the repository order (no pacman on this host)"
 fi
