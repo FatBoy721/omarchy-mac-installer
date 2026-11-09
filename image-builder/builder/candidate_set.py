@@ -3,9 +3,9 @@
 
 A set is the directory the candidate-set tool of omacom/omarchy-mac-pkgs signs:
 manifest.json, signing.json and signing.json.sig, and each package archive
-with its detached .sig. Trust comes only from candidate-trust/ beside this
-file: the signer's fingerprints, the digest of its public key and the package
-set the plan names. The key file that travels with a set is never read.
+with its detached .sig. Trust comes only from the selected, repository-pinned
+image profile: the signer's fingerprints, the digest of its public key and the
+package set the plan names. The key file that travels with a set is never read.
 
 Besides the runtime and boot packages the plan names, a set may carry the
 rest of the Apple default set's closure that the Apple repository order takes
@@ -45,6 +45,8 @@ import sys
 import tempfile
 
 TRUST = Path(__file__).resolve().parent / 'candidate-trust'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from image_profile import select as select_image_profile
 HEX40 = re.compile(r'[0-9a-f]{40}')
 HEX64 = re.compile(r'[0-9a-f]{64}')
 ARCHIVE = re.compile(r'[A-Za-z0-9@._+:-]+\.pkg\.tar\.(xz|zst)')
@@ -144,7 +146,8 @@ def vercmp(a, b):
     return result
 
 
-def load_policy(trust=TRUST):
+def load_policy(trust=None, profile='production'):
+    trust = select_image_profile(profile)['trust'] if trust is None else trust
     policy = json.loads((trust / 'policy.json').read_text())
     require(policy.get('schema') == 1, 'unsupported candidate policy')
     require(digest(trust / 'public.asc') == policy['public_key_sha256'], 'trust anchor checksum mismatch')
@@ -241,11 +244,12 @@ def verify_payloads(payloads, policy):
     return owners
 
 
-def snapshot(root, destination, receipt_sha256, source_commit, manifest_sha256=None, trust=TRUST):
+def snapshot(root, destination, receipt_sha256, source_commit, manifest_sha256=None, trust=None, profile='production'):
     require(HEX64.fullmatch(receipt_sha256) is not None, 'invalid receipt hash')
     require(manifest_sha256 is None or HEX64.fullmatch(manifest_sha256) is not None, 'invalid manifest hash')
     require(HEX40.fullmatch(source_commit) is not None, 'invalid source commit')
     require(root.is_dir() and not root.is_symlink(), 'unsafe input directory')
+    trust = select_image_profile(profile)['trust'] if trust is None else trust
     policy = load_policy(trust)
     destination.mkdir(mode=0o700)  # Exclusive: a failed import is never reused.
     for name in ('signing.json', 'signing.json.sig', 'manifest.json'):
@@ -371,7 +375,8 @@ def snapshot(root, destination, receipt_sha256, source_commit, manifest_sha256=N
     return summary
 
 
-def describe(root, trust=TRUST):
+def describe(root, trust=None, profile='production'):
+    trust = select_image_profile(profile)['trust'] if trust is None else trust
     """Verifies the set in a scratch copy and prints the values an inputs record pins."""
     receipt = json.loads((root / 'signing.json').read_text())
     manifest = json.loads((root / 'manifest.json').read_text())
@@ -393,14 +398,17 @@ def main(argv=None):
     imported.add_argument('--receipt-sha256', required=True)
     imported.add_argument('--manifest-sha256', required=True)
     imported.add_argument('--source-commit', required=True)
+    imported.add_argument('--image-profile', choices=('production', 'j714s-developer'), default='production')
     described = commands.add_parser('describe')
     described.add_argument('--input', type=Path, required=True)
+    described.add_argument('--image-profile', choices=('production', 'j714s-developer'), default='production')
     args = parser.parse_args(argv)
     try:
         if args.command == 'import':
-            summary = snapshot(args.input, args.output, args.receipt_sha256, args.source_commit, args.manifest_sha256)
+            summary = snapshot(args.input, args.output, args.receipt_sha256, args.source_commit,
+                              args.manifest_sha256, profile=args.image_profile)
         else:
-            summary = describe(args.input)
+            summary = describe(args.input, profile=args.image_profile)
     except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f'candidate_set: {error}', file=sys.stderr)
         return 1

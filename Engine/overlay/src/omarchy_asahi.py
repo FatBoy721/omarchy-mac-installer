@@ -25,6 +25,7 @@ import osinstall
 import stub
 
 import omarchy_apple_aea
+import omarchy_centauri
 import omarchy_mesa
 import omarchy_mt7932
 import omarchy_mt7932_policy
@@ -488,16 +489,35 @@ def board_stage1(device_class, os_firmware, members=(), *, common_allowed=False)
     return board
 
 
-def common_stage1_allowed(template, device_class, os_firmware):
+def common_stage1_allowed(template, device_class, os_firmware, *, system_firmware=None):
     policy = template.get("aurora_stage1")
     if policy is None:
         return False
-    if (not isinstance(policy, dict) or set(policy) != {"kind", "qualified_machines"}
+    required = {"kind", "qualified_machines"}
+    if (not isinstance(policy, dict) or not required <= set(policy)
+            or set(policy) - required - {"qualified_system_firmware"}
             or policy["kind"] != "common-raw-v1" or not isinstance(policy["qualified_machines"], dict)):
         raise AsahiAdapterError("invalid common Stage 1 qualification contract")
+    system_policy = policy.get("qualified_system_firmware", {})
+    if (not isinstance(system_policy, dict)
+            or set(system_policy) - set(policy["qualified_machines"])
+            or any(not isinstance(versions, list) or not versions
+                   or not all(isinstance(version, str) and version for version in versions)
+                   for versions in system_policy.values())):
+        raise AsahiAdapterError("invalid qualified Stage 1 system firmware contract")
     firmware = policy["qualified_machines"].get(device_class, [])
     if not isinstance(firmware, list) or not all(isinstance(value, str) for value in firmware):
         raise AsahiAdapterError("invalid qualified Stage 1 firmware list")
+    if device_class in system_policy and system_firmware not in system_policy[device_class]:
+        raise AsahiAdapterError(
+            f"this Stage 1 is not qualified for {device_class} system firmware; "
+            "use a release qualified for this Mac's installed firmware"
+        )
+    if device_class in system_policy and os_firmware not in firmware:
+        raise AsahiAdapterError(
+            f"this Stage 1 is not qualified for {device_class} installation firmware; "
+            "use a release qualified for this Mac's installation firmware"
+        )
     return os_firmware in firmware
 
 
@@ -699,6 +719,10 @@ def stub_installer(sysinfo, dutil, osinfo):
     def collect_firmware_from_an_encrypted_recovery(pkg):
         with _newer_trackpad_keys(), _neo_peripheral_collectors(installer):
             result = _collect_firmware(pkg)
+        try:
+            omarchy_centauri.collect(installer, pkg)
+        except omarchy_centauri.CentauriError as error:
+            raise AsahiAdapterError("Centauri firmware preparation failed") from error
         required = getattr(installer, "required_neo_peripherals", [])
         _collect_neo_radios(installer, pkg, required="radio" in required)
         _collect_neo_touch_id(installer, pkg, required="touch-id" in required)
@@ -1290,6 +1314,18 @@ class AsahiStage1Adapter:
         board = getattr(self.installer.sysinfo, "device_class", "")
         allowed = self.template.get("allowed_device_classes")
         excluded = self.template.get("excluded_device_classes", [])
+        policy = self.template.get("aurora_stage1")
+        candidate_policy = {
+            "kind": "common-raw-v1",
+            "qualified_machines": {"j714sap": ["27.3"]},
+            "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]},
+        }
+        names_j714s = (isinstance(policy, dict)
+                       and isinstance(policy.get("qualified_machines"), dict)
+                       and "j714sap" in policy["qualified_machines"])
+        if (board == "j714sap" or names_j714s) and (
+                allowed != ["j714sap"] or policy != candidate_policy):
+            raise AsahiAdapterError("J714s requires its exact single-board common Stage 1 candidate profile")
         if (allowed is not None and board not in allowed) or board in excluded:
             raise AsahiAdapterError("this image is not qualified for this Mac")
         self.osins = OmarchyOSInstaller(
@@ -1332,8 +1368,15 @@ class AsahiStage1Adapter:
         self.installer.ins.load_ipsw(ipsw)
         self.os_firmware = ipsw.version.split(maxsplit=1)[0]
         esp_members = self._esp_members()
-        self.common_stage1 = COMMON_STAGE1.member in esp_members and common_stage1_allowed(
-            self.template, self.installer.sysinfo.device_class, self.os_firmware)
+        common_present = COMMON_STAGE1.member in esp_members
+        policy = self.template.get("aurora_stage1")
+        system_bound = isinstance(policy, dict) and "qualified_system_firmware" in policy
+        qualified_common_stage1 = (common_present or system_bound) and common_stage1_allowed(
+            self.template, self.installer.sysinfo.device_class, self.os_firmware,
+            system_firmware=getattr(self.installer.sysinfo, "sys_firmware", None))
+        if qualified_common_stage1 and not common_present:
+            raise AsahiAdapterError(f"this qualified image has no {COMMON_STAGE1.member}")
+        self.common_stage1 = qualified_common_stage1 and common_present
         board = board_stage1(self.installer.sysinfo.device_class, self.os_firmware, esp_members,
                              common_allowed=self.common_stage1)
         if board is not None:

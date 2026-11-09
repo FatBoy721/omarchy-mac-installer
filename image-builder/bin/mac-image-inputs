@@ -103,6 +103,7 @@ record_body() {
   [[ -z ${recovery_app_manifest:-} ]] || printf 'recovery_app_manifest_sha256=%s\n' "$recovery_app_manifest"
   printf 'omarchy_channel=%s\nomarchy_server=%s\nomarchy_db_sha256=%s\n' "$omarchy_channel" "$omarchy_server" "$omarchy_db"
   [[ -z ${release_tag:-} ]] || printf 'release_tag=%s\nmac_revision=%s\n' "$release_tag" "$mac_revision"
+  [[ $image_profile == production ]] || printf 'image_profile=%s\n' "$image_profile"
   printf 'asahi_alarm_server=%s\nasahi_alarm_db_sha256=%s\n' "$asahi_alarm_server" "$asahi_alarm_db"
   printf 'alarm_server=%s\n' "$alarm_server"
   for repository in "${ALARM_REPOSITORIES[@]}"; do
@@ -148,6 +149,7 @@ valid_server() {
 load_record() {
   local file=$1 line key value hex='^[0-9a-f]{64}$'
   declare -A seen=()
+  image_profile=production
   [[ -f $file && ! -L $file ]] || fail "$file is not a regular file"
   (($(wc -c <"$file") <= 8192)) || fail "$file is not an inputs record"
   while IFS= read -r line; do
@@ -172,6 +174,7 @@ load_record() {
       omarchy_db_sha256) omarchy_db=$value ;;
       release_tag) release_tag=$value ;;
       mac_revision) mac_revision=$value ;;
+      image_profile) image_profile=$value ;;
       asahi_alarm_server) asahi_alarm_server=$value ;;
       asahi_alarm_db_sha256) asahi_alarm_db=$value ;;
       alarm_server) alarm_server=$value ;;
@@ -186,12 +189,14 @@ load_record() {
   [[ ${resolved_at:-} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ &&
     ${omarchy_channel:-} =~ ^(edge|rc|stable)$ && ${omarchy_db:-} =~ $hex ]] || fail "$file is not an inputs record"
   [[ -z ${recovery_app_manifest:-} || $recovery_app_manifest =~ $hex ]] || fail "invalid Recovery app digest"
+  python3 "$ROOT/builder/image_profile.py" trust "$image_profile" >/dev/null || fail "$file names an unknown image profile"
   lane_inputs "$omarchy_channel" "${release_tag:-}" >/dev/null || exit 1
   [[ ( -z ${release_tag:-} && -z ${seen[mac_revision]:-} ) || ${mac_revision:-} =~ ^[1-9][0-9]{0,2}$ ]] ||
     fail "$file is not an inputs record"
   # Either a candidate set or a channel set, never parts of both. A channel set
   # is named for its channel and the database it was resolved from.
   if [[ -n ${channel_set:-} ]]; then
+    [[ $image_profile == production ]] || fail "$file: a channel set supports only the production image profile"
     [[ -z ${candidate_set:-}${candidate_source_commit:-}${candidate_signer:-}${candidate_receipt:-}${candidate_manifest:-} &&
       $channel_set == "omarchy-$omarchy_channel-${omarchy_db:0:12}" &&
       ${channel_signer:-} =~ ^[0-9A-F]{40}$ && ${channel_manifest:-} =~ $hex ]] || fail "$file is not an inputs record"
@@ -284,7 +289,7 @@ resolve() {
     recovery_app_manifest=$(python3 "$ROOT/builder/recovery_app.py" "$recovery_app") || fail "invalid Recovery app input"
   fi
   if [[ -z $channel_mode ]]; then
-    described=$(python3 "$ROOT/builder/candidate_set.py" describe --input "$candidates") ||
+    described=$(python3 "$ROOT/builder/candidate_set.py" describe --input "$candidates" --image-profile "$image_profile") ||
       fail "the candidate set in $candidates does not verify"
     candidate_set=$(sed -n 's/^set=//p' <<<"$described")
     candidate_source_commit=$(sed -n 's/^source_commit=//p' <<<"$described")
@@ -342,12 +347,12 @@ case $mode in
 esac
 
 positionals=()
-cache="" candidates="" channel_mode="" channel=edge omarchy_server="" asahi_alarm_server=$DEFAULT_ASAHI_ALARM_SERVER
+cache="" candidates="" channel_mode="" channel=edge omarchy_server="" asahi_alarm_server=$DEFAULT_ASAHI_ALARM_SERVER image_profile=production
 alarm_server="" release_tag="" mac_revision=""
 recovery_app=""
 while (($#)); do
   case $1 in
-    --cache|--candidates|--channel|--recovery-app|--omarchy-server|--asahi-alarm-server|--alarm-server|--release-tag|--mac-revision)
+    --cache|--candidates|--channel|--recovery-app|--omarchy-server|--asahi-alarm-server|--alarm-server|--release-tag|--mac-revision|--image-profile)
       (($# > 1)) && [[ -n $2 ]] || usage_error "$1 requires a value"
       [[ $mode == resolve || ( $1 == --cache && ( $mode == rootfs || $mode == dbs || $mode == packages ) ) ]] ||
         usage_error "$1 does not apply to $mode"
@@ -362,6 +367,7 @@ while (($#)); do
         --omarchy-server) omarchy_server=$2 ;;
         --release-tag) release_tag=$2 ;;
         --mac-revision) mac_revision=$2 ;;
+        --image-profile) image_profile=$2 ;;
         --asahi-alarm-server) asahi_alarm_server=$2 ;;
         --alarm-server) alarm_server=$2 ;;
       esac
@@ -392,10 +398,12 @@ case $mode in
     [[ -z $mac_revision || $mac_revision =~ ^[1-9][0-9]{0,2}$ ]] || usage_error "the Mac revision must be 1 to 999"
     if [[ -n $channel_mode ]]; then
       [[ -z $candidates ]] || usage_error "--candidates and --channel-set exclude each other"
+      [[ $image_profile == production ]] || usage_error "--channel-set supports only the production image profile"
       [[ -n $recovery_app ]] || usage_error "--channel-set requires --recovery-app: every public image carries the native Recovery app"
     else
       [[ -n $candidates && -d $candidates ]] || usage_error "--candidates names no directory"
     fi
+    python3 "$ROOT/builder/image_profile.py" trust "$image_profile" >/dev/null || usage_error "unknown image profile: $image_profile"
     omarchy_channel=$channel
     # shellcheck disable=SC2059
     [[ -n $omarchy_server ]] || printf -v omarchy_server "$DEFAULT_OMARCHY_SERVER" "$(sed -n 's/^OMARCHY_MIRROR=//p' <<<"$contract")"

@@ -968,11 +968,11 @@ if command -v pacman >/dev/null 2>&1; then
     field() { sed -n "s/^$1=//p" "$channel/inputs"; }
     fail() { builder_fail "$@"; }
     read_repository_order
-    render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = auto/' >"$scratch/channel.conf"
+    render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = aarch64/' >"$scratch/channel.conf"
     [[ $(resolved "$scratch/channel.conf") == "omarchy 0.52.0-1" ]] ||
       fail "a channel image takes hyprland from [omarchy]: $(resolved "$scratch/channel.conf")"
   )
-  render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = auto/' >"$scratch/candidate.conf"
+  render_config "$scratch/repos" "$scratch/cache" | sed 's/^Architecture = .*/Architecture = aarch64/' >"$scratch/candidate.conf"
   [[ $(resolved "$scratch/candidate.conf") == "extra 0.51.1-2" ]] ||
     fail "a candidate set's order still takes it from Arch Linux ARM: $(resolved "$scratch/candidate.conf")"
   pass "pacman takes a package both [omarchy] and Arch Linux ARM carry from [omarchy] in a channel image"
@@ -1008,7 +1008,7 @@ if command -v pacman >/dev/null 2>&1; then
     'm1n1-neo|1.6.1.aurora16-1|%PROVIDES%\nm1n1=1.6.1.aurora16\n\n%CONFLICTS%\nm1n1\n\n'
   boot_db asahi-alarm 'm1n1|1.6.1-1|' 'uboot-asahi|2026.07.asahi2-1|' 'asahi-scripts|20260127.1-1|'
   {
-    printf '[options]\nArchitecture = auto\nSigLevel = Never\n'
+    printf '[options]\nArchitecture = aarch64\nSigLevel = Never\n'
     for repository in omarchy-candidates omarchy asahi-alarm; do
       printf '[%s]\nServer = file:///nonexistent/%s\n' "$repository" "$repository"
     done

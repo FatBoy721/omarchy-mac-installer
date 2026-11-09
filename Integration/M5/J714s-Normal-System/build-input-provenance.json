@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "official_baseline": {
+    "database_sha256": "d64a0cd062d01cdb8c18aa090bbe67ecde37fe5775d1292d57b5130f5322538b",
+    "signer": "40DFB630FF42BCFFB047046CF0134EE680CAC571",
+    "original_signatures": {
+      "alsa-ucm-conf-aurora": "42ccf6f77479ea718325030544cc84bb3571e46c644e176bda6948fb851c87ee",
+      "aurora-audio": "c152bf18b41b4956e564c46eebe6cbfa6293912b3a61a6ca53877a3018f89d83",
+      "aurora-bless": "8d196ca03ea1ed96d1669588ee8ecdae3eb0b5bf69f8f8a6c557e63e9e0436ef",
+      "limine-mkinitcpio-hook": "17c2da77061c5b996f6605a596157eb817e5d0dae86983ef2719bc1035ec7289",
+      "omarchy": "78b2d661dec42e37f75efcfe4af4e732f6d6e1fd6a997977bda16cb81135c559",
+      "omarchy-mac": "b7bcc600fc5fd3577bd8b016aeaa7fb187e4c5ca224fe10851632115903ddae4",
+      "omarchy-mac-boot": "892570c557bd8983e2ecba8fa60941fb1f8f7fc3b9dd058a8ce1ec7d907d61cc",
+      "omarchy-settings": "5ec7340ca1343c6b79d0bab8c2527509a0e4e8c4b1982a95317294199fa8977d",
+      "speakerguardd": "7cbcf28938f09cb7025e384ad171f6a580dad376242f90ccbb4bb6428dc01127"
+    }
+  },
+  "recovery": {
+    "repository": "omacom/omarchy-mac-installer",
+    "source_commit": "c07e54c2134a8ec1415e7e2b917589ae1d3d7dc9",
+    "source_tree": "13705bf0ccab8cc841ee9d418c36b7d7ddcafb48",
+    "ci_run": 42164687304,
+    "artifact_id": 13479080380,
+    "artifact_sha256": "b2b3f243c71ddf578595dcf6a1a81a50df34ffff80a369269543b69a6fda0f93",
+    "inventory_sha256": "f32296121b1145619f7dff52155fc056b00c1c67942891252bb977ce8291b386"
+  },
+  "native_mesa": {
+    "repository": "TripleU613/omarchy-pkgs",
+    "commit": "9c88bed7a7cc6b69d230ebb2279becaac9d14840",
+    "run": 42649339647,
+    "artifact_id": 13688964867,
+    "artifact_sha256": "507b72a3aae1c6c8a5d8923e4e43100f470bc771ec8466905f57b2fc03fcc43c"
+  },
+  "candidate_set_signer_tool": {
+    "repository": "omacom/omarchy-mac-pkgs",
+    "commit": "062cda3d2786fcebf2cebf46e14170c8999d4c37",
+    "path": "tools/release/candidate-set",
+    "sha256": "b3f4f2a54ea6efeb05ac4875fcadd218b76371cdc779c377547e5a72cc72ca29"
+  }
+}

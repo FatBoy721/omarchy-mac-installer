@@ -9,10 +9,23 @@ name: Native Recovery image input check and build
 on:
   workflow_dispatch:
     inputs:
+      image-profile:
+        description: Select the public production image or the reviewed J714s developer profile
+        type: choice
+        options: [production, j714s-developer]
+        default: production
       build-image:
         description: Build the full image after authenticating inputs
         type: boolean
         default: false
+      bundle-url:
+        description: Owned-fork PRE-RELEASE BUILD INPUTS asset URL (developer profile only)
+        type: string
+        default: ''
+      bundle-sha256:
+        description: Reviewed SHA-256 of the developer inputs archive
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,7 +37,7 @@ defaults:
 jobs:
   recovery:
     name: Build the native Recovery image input
-    if: github.repository == 'omacom/omarchy-mac-installer'
+    if: github.repository == 'omacom/omarchy-mac-installer' && inputs.image-profile == 'production'
     uses: ./.github/workflows/recovery-app.yml
     permissions:
       contents: read
@@ -34,6 +47,7 @@ jobs:
     needs: recovery
     if: >-
       github.repository == 'omacom/omarchy-mac-installer' &&
+      inputs.image-profile == 'production' &&
       github.event_name != 'pull_request' &&
       github.event_name != 'pull_request_target'
     # Namespace's bleeding-edge kernel, as mac-image.yml: a full build needs FAT.
@@ -97,3 +111,130 @@ jobs:
             ${{ runner.temp }}/recovery-image/evidence/
             ${{ runner.temp }}/recovery-image/out/
           retention-days: 14
+
+  developer-image:
+    name: Build the J714s developer image
+    if: >-
+      github.repository == 'TripleU613/omarchy-mac-installer' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.image-profile == 'j714s-developer'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      INPUT_URL: ${{ inputs.bundle-url }}
+      INPUT_SHA256: ${{ inputs.bundle-sha256 }}
+      RECOVERY_SOURCE_TREE: 13705bf0ccab8cc841ee9d418c36b7d7ddcafb48
+      RECOVERY_INVENTORY: f32296121b1145619f7dff52155fc056b00c1c67942891252bb977ce8291b386
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Check the ephemeral ARM build host
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == aarch64 ]]
+          sudo apt-get update -qq
+          sudo apt-get install --yes -qq libarchive-tools jq gnupg zstd btrfs-progs
+          sudo modprobe loop
+          sudo modprobe vfat
+          sudo modprobe btrfs
+          WORK=$RUNNER_TEMP/j714s-developer-image
+          echo "WORK=$WORK" >> "$GITHUB_ENV"
+          mkdir -p "$WORK/evidence"
+          {
+            git rev-parse HEAD
+            uname -a
+            free -h
+            df -h / "$RUNNER_TEMP"
+            docker version --format '{{.Server.Version}} {{.Server.Arch}}'
+            grep -E 'vfat|btrfs' /proc/filesystems
+          } | tee "$WORK/evidence/host.txt"
+
+      - name: Fetch and verify the reviewed developer inputs
+        run: |
+          set -euo pipefail
+          [[ $INPUT_SHA256 =~ ^[0-9a-f]{64}$ ]]
+          [[ $INPUT_URL =~ ^https://github\.com/TripleU613/omarchy-mac-installer/releases/download/developer-inputs-[A-Za-z0-9._-]+/j714s-developer-inputs-[0-9a-f]{12}\.tar\.zst$ ]]
+          curl --fail --silent --show-error --location --proto '=https' -- "$INPUT_URL" > "$WORK/inputs.tar.zst"
+          printf '%s  %s\n' "$INPUT_SHA256" "$WORK/inputs.tar.zst" | sha256sum --check -
+          zstd --decompress --stdout "$WORK/inputs.tar.zst" > "$WORK/inputs.tar"
+          python3 - "$WORK" <<'PY'
+          import hashlib, json, pathlib, subprocess, sys, tarfile
+          work = pathlib.Path(sys.argv[1])
+          with tarfile.open(work / 'inputs.tar') as archive:
+              allowed = {'candidate-set', 'recovery', 'engine', 'source-provenance.json'}
+              seen = set()
+              for member in archive.getmembers():
+                  parts = pathlib.PurePosixPath(member.name).parts
+                  if (not parts or parts[0] not in allowed or '..' in parts or member.name.startswith('/')
+                          or member.name in seen or not (member.isfile() or member.isdir())):
+                      raise SystemExit('unexpected developer input member')
+                  seen.add(member.name)
+              archive.extractall(work / 'input', filter='data')
+          source = json.loads((work / 'input/source-provenance.json').read_text())
+          if source.get('developer_only') is not True or source.get('builder_commit') != subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip():
+              raise SystemExit('developer input source does not match this main build commit')
+          lock = json.loads(pathlib.Path('Engine/source-lock.json').read_text())['validation_artifact']
+          if any(source.get('engine', {}).get(key) != lock[key] for key in ('filename', 'size_bytes', 'sha256', 'metadata_sha256')):
+              raise SystemExit('developer provenance names a different engine source lock')
+          engine = work / 'input/engine' / lock['filename']
+          if engine.is_symlink() or engine.stat().st_size != lock['size_bytes'] or hashlib.file_digest(engine.open('rb'), 'sha256').hexdigest() != lock['sha256']:
+              raise SystemExit('engine archive differs from the source lock')
+          engine_out = work / 'engine'
+          engine_out.mkdir()
+          engine_out.joinpath(lock['filename']).write_bytes(engine.read_bytes())
+          PY
+          python3 Engine/prepare-engine.py --output "$WORK/engine" --cache "$WORK/engine-cache" | tee "$WORK/evidence/engine-archive.txt"
+          [[ $(git rev-parse HEAD:Recovery) == "$RECOVERY_SOURCE_TREE" ]]
+          python3 image-builder/builder/recovery_app.py "$WORK/input/recovery" --sha256 "$RECOVERY_INVENTORY"
+          python3 image-builder/builder/candidate_set.py describe --input "$WORK/input/candidate-set" --image-profile j714s-developer | tee "$WORK/evidence/candidate-import.txt"
+          cp "$WORK/input/source-provenance.json" "$WORK/evidence/"
+          cp image-builder/builder/profiles/j714s-developer/candidate-trust/{policy.json,public.asc} "$WORK/evidence/"
+          printf 'input_url=%s\ninput_sha256=%s\n' "$INPUT_URL" "$INPUT_SHA256" > "$WORK/evidence/transport.txt"
+
+      - name: Resolve and build with the named developer profile
+        run: |
+          set -euo pipefail
+          bash image-builder/bin/mac-image-inputs resolve "$WORK/inputs" \
+            --candidates "$WORK/input/candidate-set" --channel edge --image-profile j714s-developer \
+            --recovery-app "$WORK/input/recovery" --cache "$WORK/cache" 2>&1 | tee "$WORK/evidence/resolve.log"
+          cp "$WORK/inputs" "$WORK/evidence/inputs"
+          bash image-builder/bin/build-mac-image --inputs "$WORK/inputs" --image-profile j714s-developer \
+            --candidates "$WORK/input/candidate-set" --recovery-app "$WORK/input/recovery" \
+            --cache "$WORK/cache" "$WORK/out" 2>&1 | tee "$WORK/evidence/build.log"
+
+      - name: Check and retain the developer image
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/out"
+          python3 image-builder/bin/mac-image-check provenance edge "$WORK/out"
+          python3 image-builder/bin/mac-image-check descriptor edge "$WORK/out"
+          python3 - "$WORK/out/installer_data.json" <<'PY'
+          import json, sys
+          os_info = json.load(open(sys.argv[1]))['os_list'][0]
+          if os_info.get('allowed_device_classes') != ['j714sap'] or os_info.get('recovery_gui') != 'omarchy-native-v1':
+              raise SystemExit('developer installer metadata does not name the reviewed device and Recovery flow')
+          PY
+          mkdir "$WORK/out/engine"
+          cp "$WORK/engine/"*.tar.gz "$WORK/out/engine/"
+          printf '%s\n' 'DEVELOPER IMAGE BUILD INPUTS: no supported-model release, catalog publication, promotion, or hardware qualification.' > "$WORK/out/DEVELOPER-ONLY.txt"
+          (cd "$WORK/out" && sha256sum ./*.zip > payload.sha256)
+
+      - name: Retain diagnostics from a failed build
+        if: failure() || cancelled()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" "$WORK/out" 2>/dev/null || true
+          if [[ -d $WORK/out/logs ]]; then cp -r "$WORK/out/logs" "$WORK/evidence/logs"; fi
+
+      - name: Save developer build artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: j714s-developer-image-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/j714s-developer-image/evidence/
+            ${{ runner.temp }}/j714s-developer-image/out/
+          compression-level: 0
+          retention-days: 7

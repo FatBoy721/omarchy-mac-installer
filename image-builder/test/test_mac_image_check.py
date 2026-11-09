@@ -254,6 +254,12 @@ class ChannelBuildDirectoryTest(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaisesRegex(check.CheckError, "lab profile for a channel image"):
                 getattr(check, f"check_{mode}")("edge", self.out)
 
+    def test_a_channel_build_cannot_name_the_developer_image_profile(self):
+        self.build(inputs=dict(self.inputs, image_profile="j714s-developer"))
+        for mode in ("provenance", "descriptor"):
+            with self.subTest(mode=mode), self.assertRaisesRegex(check.CheckError, "channel image cannot use"):
+                getattr(check, f"check_{mode}")("edge", self.out)
+
     def test_the_image_target_and_inspection_must_name_the_channel_build(self):
         cases = {
             "the image target's channel_db_sha256 does not match": dict(

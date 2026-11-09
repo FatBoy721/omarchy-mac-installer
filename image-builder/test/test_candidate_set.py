@@ -102,6 +102,39 @@ class CandidateSetTest(unittest.TestCase):
         summary = self.verify()
         self.assertIn("uboot-aurora", {p["name"] for p in summary["packages"]})
 
+    def test_j714s_developer_profile_accepts_its_exact_15_roles(self):
+        from image_profile import select
+
+        signer = fixtures.Signer(self.base / "j714s-signer")
+        self.addCleanup(signer.close)
+        profile = json.loads(select("j714s-developer")["trust"].joinpath("policy.json").read_text())
+        profile.update(primary_fingerprint=signer.fingerprint, signing_fingerprint=signer.fingerprint,
+                       public_key_sha256=c.digest(signer.trust / "public.asc"))
+        (signer.trust / "policy.json").write_text(json.dumps(profile))
+        names = profile["runtime_packages"] + profile["boot_packages"] + profile["support_packages"]
+        self.assertEqual(len(names), 15)
+        release = "7.3.0-15.j714s2-1-j714s-candidate-ARCH"
+        contents = fixtures.default_contents()
+        kernel = contents["linux-aurora"]
+        kernel = {path.replace(fixtures.RELEASE, release): data for path, data in kernel.items()}
+        kernel[f"usr/lib/modules/{release}/dtbs/t6050-j714s.dtb"] = fixtures.dtb("t6050-j714s")
+        contents["linux-aurora"] = kernel
+        input_set = self.base / "j714s-15-role-set"
+        def developer_sources(manifest):
+            for package in manifest["packages"]:
+                if package["name"] in profile["boot_packages"] + profile["support_packages"]:
+                    package["source"] = {"repository": profile["boot_repository"], "commit": fixtures.BOOT_SOURCE}
+
+        receipt = fixtures.make_set(input_set, signer, names=names,
+                                    versions={"linux-aurora": "7.3.0.aurora15.j714s2-1"},
+                                    contents=contents, manifest_edit=developer_sources)
+        output = self.base / "j714s-15-role-import"
+        summary = c.snapshot(input_set, output, receipt, fixtures.SOURCE, trust=signer.trust)
+        imported = {package["name"] for package in summary["packages"]}
+        self.assertEqual(imported, set(names))
+        self.assertNotIn("linux-aurora-headers", imported)
+        self.assertIn("t6050-j714s", profile["device_trees"])
+
     def test_the_replaced_asahi_boot_chain_is_refused(self):
         for name, version in (("aura", "0.1.0.r20261023-1"), ("m1n1-neo", "1.6.1.aurora16-1"),
                               ("uboot-asahi", "2026.07.asahi2-1")):

@@ -1,0 +1,13 @@
+{
+  "kind": "common-raw-v1",
+  "qualified_machines": {
+    "j714sap": [
+      "27.3"
+    ]
+  },
+  "qualified_system_firmware": {
+    "j714sap": [
+      "mBoot-20457.60.65.0.1"
+    ]
+  }
+}

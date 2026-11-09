@@ -206,6 +206,8 @@ refuse "a channel set named for another channel" sed 's/^channel_set=omarchy-edg
 refuse "a lowercase channel signer" \
   sed 's/^channel_signer=.*/channel_signer=40dfb630ff42bcffb047046cf0134ee680cac571/' "$work/channel-inputs"
 refuse "a channel record without its manifest digest" sed '/^channel_manifest_sha256=/d' "$work/channel-inputs"
+refuse "a channel record with the developer image profile" \
+  awk '{ print } /^channel_manifest_sha256=/ { print "image_profile=j714s-developer" }' "$work/channel-inputs"
 
 mkdir "$work/channel-packages"
 "$BASH" "$inputs" packages "$work/channel-inputs" "$work/channel-packages" --cache "$work/cache" >/dev/null ||

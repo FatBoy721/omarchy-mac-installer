@@ -66,6 +66,12 @@ IPSW_VERSIONS = patched_ipsws() + UPSTREAM_IPSWS
 CHIP_MIN_VER = {0x8103: "11.0", 0x8112: "12.4", 0x8122: "14.8.3", 0x8140: "26.6"}
 DEVICE_MIN = {"j313ap": "11.0", "j413ap": "12.4", "j613ap": "14.8.3",
               "j615ap": "14.8.3", "j700ap": "26.6"}
+# Read new admission entries from the actual shipped patch: deleting or
+# changing the real chip/device entries must break the candidate fixtures.
+CHIP_MIN_VER.update({int(chip, 16): version for chip, version in re.findall(
+    r'^\+\s+(0x[0-9a-fA-F]+): "([^"]+)"', PATCH.read_text(), re.MULTILINE)})
+DEVICE_MIN.update(dict(re.findall(
+    r'^\+\s+"(j[0-9a-z]+ap)":\s+Device\("([^"]+)", False\)', PATCH.read_text(), re.MULTILINE)))
 TODAY = ["13.5", "14.8.3", "26.6"]
 ON_26_6_2 = dict(sys_firmware="mBoot-18000.161.10", macos_ver="26.6.2",
                  sfr_full_ver="25.7.83.0.0,0")
@@ -109,6 +115,37 @@ class PatchedFirmwareTableTests(unittest.TestCase):
         self.assertIn("+        if self.engine_runtime:\n"
                       "+            omarchy_firmware.require_available(minver, avail, split_ver)\n", main)
         self.assertNotIn("+                stub_size=(STUB_SIZE_MACOS26", main)
+
+    def test_j714s_candidate_has_one_exact_device_restricted_apple_restore(self):
+        candidate, = [item for item in IPSW_VERSIONS if item.version == "27.3"]
+        self.assertEqual((candidate.min_macos, candidate.min_iboot, candidate.min_sfr,
+                          candidate.expert_only, candidate.devices),
+                         ("27.3", "mBoot-20457.60.65.0.1", "26.3.35.5.18,0", False, ["j714sap"]))
+        self.assertEqual(candidate.url,
+                         "https://updates.cdn-apple.com/2026FallSeed/53df7654-4865-4259-8dae-30177b76f104/"
+                         "UniversalMac_27.3_26C5035r_Restore.ipsw")
+
+    def test_j714s_requires_its_os_system_and_restore_firmware_and_large_stub(self):
+        versions = dict(sys_firmware="mBoot-20457.60.65.0.1", macos_ver="27.3",
+                        sfr_full_ver="26.3.35.5.18,0")
+        system, device = mac("j714sap", 0x6050, **versions)
+        self.assertEqual(choose(system, device, ["27.3"]), ("27.3", STUB_SIZE_MACOS26))
+        self.assertEqual(choose(system, device, TODAY), (None, STUB_SIZE_MACOS26))
+        for key, value in (("sys_firmware", "mBoot-20457.41.2"), ("macos_ver", "27.2"),
+                           ("sfr_full_ver", "26.3.35.5.17,0")):
+            with self.subTest(key=key):
+                system, device = mac("j714sap", 0x6050, **{**versions, key: value})
+                self.assertEqual(choose(system, device, ["27.3"]), (None, STUB_SIZE_MACOS26))
+
+    def test_j714s_restore_is_not_offered_to_legacy_or_sibling_devices(self):
+        for board in ("j700ap", "j613ap", "j714cap", "j716sap"):
+            system = SimpleNamespace(device_class=board, chip_id=0x6050,
+                                     sys_firmware="mBoot-20457.60.65.0.1", macos_ver="27.3",
+                                     sfr_full_ver="26.3.35.5.18,0")
+            device = SimpleNamespace(min_ver="27.3")
+            _, available = available_ipsws(IPSW_VERSIONS, CHIP_MIN_VER, system, device,
+                                           ["27.3"], False, split_ver)
+            self.assertEqual(available, [], board)
 
 
 class DefaultFirmwareTests(unittest.TestCase):

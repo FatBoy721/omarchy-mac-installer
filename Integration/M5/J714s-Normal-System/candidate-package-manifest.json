@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "candidate_only": true,
+  "set": "j714s-dev-runtime-11c310b1d7dc",
+  "source": {
+    "repository": "omacom/omarchy",
+    "commit": "a948d8a6871f446b335258c827648ac5f4e9428b",
+    "ref": "v4.5.0"
+  },
+  "platform_sources": {
+    "omarchy-mac": "ea0097a523191bcf3c6997e8d3a162ea13a1fe67",
+    "omarchy-mac-boot": "7e50e937b5f32a62f1c8fee9699467d23faa74d5"
+  },
+  "packages": [
+    {
+      "name": "alsa-ucm-conf-aurora",
+      "version": "10.aurora3-1",
+      "arch": "aarch64",
+      "filename": "alsa-ucm-conf-aurora-10.aurora3-1-aarch64.pkg.tar.zst",
+      "sha256": "77161459a800e9803b700b0200006ac13ad1e1e92b63b04ba3abc82fe0164352",
+      "source": {
+        "channel": "omacom edge aarch64",
+        "url": "https://pkgs.omarchy.org/edge/aarch64/alsa-ucm-conf-aurora-10.aurora3-1-aarch64.pkg.tar.zst",
+        "omacom_signature_sha256": "42ccf6f77479ea718325030544cc84bb3571e46c644e176bda6948fb851c87ee"
+      },
+      "size_bytes": 9255
+    },
+    {
+      "name": "aurora-audio",
+      "version": "4.1.aurora3-3",
+      "arch": "aarch64",
+      "filename": "aurora-audio-4.1.aurora3-3-aarch64.pkg.tar.zst",
+      "sha256": "c53f9e18c3c213eada2fa7b7dbee5f04224304d296e6b3c672f12e20fed19c7c",
+      "source": {
+        "channel": "omacom edge aarch64",
+        "url": "https://pkgs.omarchy.org/edge/aarch64/aurora-audio-4.1.aurora3-3-aarch64.pkg.tar.zst",
+        "omacom_signature_sha256": "c152bf18b41b4956e564c46eebe6cbfa6293912b3a61a6ca53877a3018f89d83"
+      },
+      "size_bytes": 1790126
+    },
+    {
+      "name": "aurora-bless",
+      "version": "0.4.4.aurora2-1",
+      "arch": "aarch64",
+      "filename": "aurora-bless-0.4.4.aurora2-1-aarch64.pkg.tar.zst",
+      "sha256": "23ae2572f4b15246aafbdfd9929250250ceb623b9e7810886720f4ff117fa732",
+      "source": {
+        "channel": "omacom edge aarch64",
+        "url": "https://pkgs.omarchy.org/edge/aarch64/aurora-bless-0.4.4.aurora2-1-aarch64.pkg.tar.zst",
+        "omacom_signature_sha256": "8d196ca03ea1ed96d1669588ee8ecdae3eb0b5bf69f8f8a6c557e63e9e0436ef"
+      },
+      "size_bytes": 382511
+    },
+    {
+      "name": "limine-mkinitcpio-hook",
+      "version": "1.40.0-3",
+      "arch": "aarch64",
+      "filename": "limine-mkinitcpio-hook-1.40.0-3-aarch64.pkg.tar.zst",
+      "sha256": "21aa10e92b11ef3d8e4929ad79b737c173e8ed2be267c69dee5d9e8681348315",
+      "source": {
+        "channel": "omacom edge aarch64",
+        "url": "https://pkgs.omarchy.org/edge/aarch64/limine-mkinitcpio-hook-1.40.0-3-aarch64.pkg.tar.zst",
+        "omacom_signature_sha256": "17c2da77061c5b996f6605a596157eb817e5d0dae86983ef2719bc1035ec7289"
+      },
+      "size_bytes": 6816462
+    },
+    {
+      "name": "linux-aurora",
+      "version": "7.3.0.aurora15.j714s2-1",
+      "arch": "aarch64",
+      "filename": "linux-aurora-7.3.0.aurora15.j714s2-1-aarch64.pkg.tar.zst",
+      "sha256": "efe8d9c95c02d1ac93e4f043527523c05ba3d9dcd94b70abec4a5004784ca2c0",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 42674507
+    },
+    {
+      "name": "m1n1-aurora",
+      "version": "1.6.1.aurora22.j714s2-1",
+      "arch": "aarch64",
+      "filename": "m1n1-aurora-1.6.1.aurora22.j714s2-1-aarch64.pkg.tar.zst",
+      "sha256": "ab67bc77b8894cfd15d168ade5cb52edefff9ed4cdd230c7caf27ebaf25c5a00",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 2000194
+    },
+    {
+      "name": "mesa-aurora",
+      "version": "1:26.3.0_devel.20261109.j714s2.043a4c5-1",
+      "arch": "aarch64",
+      "filename": "mesa-aurora-1:26.3.0_devel.20261109.j714s2.043a4c5-1-aarch64.pkg.tar.zst",
+      "sha256": "699631582c7206c94292a0486a6829e476f35489874ef58eeb72bf2f402bbc87",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 7307523
+    },
+    {
+      "name": "omarchy",
+      "version": "4.5.0-3.7141",
+      "arch": "aarch64",
+      "filename": "omarchy-4.5.0-3.7141-aarch64.pkg.tar.zst",
+      "sha256": "5ea3890c92d5748b2eca930c8b17c95fb9b3bb68ed3682f407f9ef2f7034436f",
+      "source": {
+        "repository": "omacom/omarchy",
+        "commit": "a948d8a6871f446b335258c827648ac5f4e9428b"
+      },
+      "size_bytes": 81675765
+    },
+    {
+      "name": "omarchy-aurora-firmware",
+      "version": "20261014.j714s1-1",
+      "arch": "aarch64",
+      "filename": "omarchy-aurora-firmware-20261014.j714s1-1-aarch64.pkg.tar.zst",
+      "sha256": "403f9fccf5dd353f893aafae05dd2153f7198ef5254d5143326478fe61867bc7",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 19032
+    },
+    {
+      "name": "omarchy-mac",
+      "version": "0.2.3-2",
+      "arch": "aarch64",
+      "filename": "omarchy-mac-0.2.3-2-aarch64.pkg.tar.zst",
+      "sha256": "3d75a8bdcf7703ed40fdb17e543df185b6d95f1f97a8c8c752131493ae1b4cc5",
+      "source": {
+        "repository": "omacom/omarchy-mac-pkgs",
+        "commit": "ea0097a523191bcf3c6997e8d3a162ea13a1fe67"
+      },
+      "size_bytes": 71946
+    },
+    {
+      "name": "omarchy-mac-boot",
+      "version": "20261104-1",
+      "arch": "aarch64",
+      "filename": "omarchy-mac-boot-20261104-1-aarch64.pkg.tar.zst",
+      "sha256": "e38d1eff816d8edb602878f20241e5eb0e28005a94ef2fc45a4e8decd742f497",
+      "source": {
+        "repository": "omacom/omarchy-mac-pkgs",
+        "commit": "7e50e937b5f32a62f1c8fee9699467d23faa74d5"
+      },
+      "size_bytes": 96007
+    },
+    {
+      "name": "omarchy-settings",
+      "version": "4.5.0-3.7141",
+      "arch": "aarch64",
+      "filename": "omarchy-settings-4.5.0-3.7141-aarch64.pkg.tar.zst",
+      "sha256": "f81463ed30356ede17df0eaebfd61c5bcd2197e3367a67df04e46bfcfef9f94f",
+      "source": {
+        "repository": "omacom/omarchy",
+        "commit": "a948d8a6871f446b335258c827648ac5f4e9428b"
+      },
+      "size_bytes": 1789574
+    },
+    {
+      "name": "speakerguardd",
+      "version": "0.1.0.aurora3-1",
+      "arch": "aarch64",
+      "filename": "speakerguardd-0.1.0.aurora3-1-aarch64.pkg.tar.zst",
+      "sha256": "4910c0807f980172e52b908ba55d961b7deda57f43bda77e51f10c6eeb2bb7ca",
+      "source": {
+        "channel": "omacom edge aarch64",
+        "url": "https://pkgs.omarchy.org/edge/aarch64/speakerguardd-0.1.0.aurora3-1-aarch64.pkg.tar.zst",
+        "omacom_signature_sha256": "7cbcf28938f09cb7025e384ad171f6a580dad376242f90ccbb4bb6428dc01127"
+      },
+      "size_bytes": 230352
+    },
+    {
+      "name": "uboot-aurora",
+      "version": "2026.07.aurora6.j714s2-1",
+      "arch": "aarch64",
+      "filename": "uboot-aurora-2026.07.aurora6.j714s2-1-aarch64.pkg.tar.zst",
+      "sha256": "9618a5169fdbb62640a7850f7af00b0687faffca1e24c0d036b2396551ddd842",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 401248
+    },
+    {
+      "name": "vulkan-aurora",
+      "version": "1:26.3.0_devel.20261109.j714s2.043a4c5-1",
+      "arch": "aarch64",
+      "filename": "vulkan-aurora-1:26.3.0_devel.20261109.j714s2.043a4c5-1-aarch64.pkg.tar.zst",
+      "sha256": "5810bcbd25cce15fcb230e58979ebea955d2fccbbf5c21a03caacca4d6844aa4",
+      "source": {
+        "repository": "TripleU613/omarchy-pkgs",
+        "commit": "bf098840308602cd2d5a99fa8445353a3386290d"
+      },
+      "size_bytes": 4812285
+    }
+  ],
+  "limitations": [
+    "Developer runtime qualification only",
+    "No native headers or DKMS qualification",
+    "No physical installer or hardware qualification",
+    "No supported release or catalog promotion"
+  ],
+  "set_sha256": "11c310b1d7dc7fc1292c9174aacc7fdde380022cc38bd6cd5daaccdb79b8a26b"
+}

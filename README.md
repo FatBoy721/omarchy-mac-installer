@@ -193,6 +193,8 @@ The preserved release and cutover tools keep the original publisher's endpoints 
 
 Further reading:
 
+- [M5 / J714s candidate integration](Integration/M5/J714s-Normal-System/README.md): centralized developer-only source closure and remaining qualification; this is not a supported installer release.
+- [M5 Apple Silicon contributor and source inventory](SOURCES.md): exact source snapshots, contributor-reported results, licensing limits and open audit work. The inventory is point-in-time and not exhaustive.
 - [Extraction provenance and boundaries](docs/extraction.md)
 - [Validation and macOS handoff](docs/validation.md)
 - [Catalog release](docs/catalog-release.md) and [release pipeline](docs/mac-release-pipeline.md)

@@ -123,6 +123,7 @@ from omarchy_asahi import (  # noqa: E402
     AsahiInPlaceRepairAdapter,
     AsahiStage1Adapter,
     OmarchyOSInstaller,
+    common_stage1_allowed,
     esp_board_layout,
     fill_aurora_stage1,
     install_board_stage1,
@@ -133,6 +134,29 @@ from omarchy_asahi import (  # noqa: E402
 
 
 GIB = 1024**3
+
+
+class CentauriFirmwareFlowTests(unittest.TestCase):
+    def test_selected_restore_preparation_enters_existing_collection_hook(self):
+        from test_omarchy_centauri import fixture
+        selected, _ = fixture()
+        selected.load_identity = lambda: selected.identity
+        selected.install_files = lambda _current: None
+        selected.osi = SimpleNamespace(recovery="unused", vgid="unused")
+        seen = []
+        selected.collect_firmware = lambda package: seen.append("legacy-collected")
+        package = SimpleNamespace(add_file=lambda name, data: seen.append((name, data)))
+        firmware = SimpleNamespace(core=SimpleNamespace(FWFile=lambda name, data: data))
+        with patch("omarchy_asahi.stub.StubInstaller", return_value=selected), patch(
+            "omarchy_asahi._is_encrypted", return_value=False
+        ), patch.dict(
+            sys.modules, {"asahi_firmware": firmware}
+        ):
+            installer = stub_installer(selected.sysinfo, "dutil", "osinfo")
+            installer.collect_firmware(package)
+        self.assertEqual(seen[0], "legacy-collected")
+        self.assertEqual(seen[1][0], "apple/centauri/j714s-ftab.bin")
+        self.assertEqual(seen[1][1][0x20:0x28], b"rkosftab")
 
 
 class DefaultBootVerificationTests(unittest.TestCase):
@@ -580,6 +604,98 @@ class AsahiStage1AdapterTests(unittest.TestCase):
                     adapter.preflight(self.plan)
                 self.assertFalse(adapter.preflight_complete)
                 self.assertEqual(installer.dutil.add_calls, [])
+
+    def test_exact_system_firmware_preflight_rejects_before_partitioning(self):
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["allowed_device_classes"] = ["j714sap"]
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1",
+            "qualified_machines": {"j714sap": ["27.3"]},
+            "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]},
+        }
+        self._write_metadata([metadata])
+        for firmware in (None, "mBoot-20457.41.2", "mBoot-20457.60.65.0.10"):
+            with self.subTest(firmware=firmware):
+                installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+                installer.sysinfo = SimpleNamespace(device_class="j714sap", sys_firmware=firmware)
+                installer.ipsw.version = "27.3"
+                adapter = self._adapter(installer)
+                with self.assertRaisesRegex(AsahiAdapterError, "not qualified.*system firmware"):
+                    adapter.preflight(self.plan)
+                self.assertFalse(adapter.preflight_complete)
+                self.assertEqual(installer.dutil.add_calls, [])
+                self.assertEqual(installer.ins.calls, [("load_ipsw", installer.ipsw)])
+
+    def test_exact_system_firmware_contract_is_checked_without_common_payload(self):
+        metadata = self._target_metadata()
+        metadata["allowed_device_classes"] = ["j714sap"]
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1",
+            "qualified_machines": {"j714sap": ["27.3"]},
+            "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]},
+        }
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        installer.sysinfo = SimpleNamespace(device_class="j714sap", sys_firmware="mBoot-20457.60.65.0.1")
+        installer.ipsw.version = "27.3"
+        adapter = self._adapter(installer)
+        with self.assertRaisesRegex(AsahiAdapterError, "qualified image has no esp/aurora/stage1.bin"):
+            adapter.preflight(self.plan)
+        self.assertEqual(installer.dutil.add_calls, [])
+
+    def test_exact_system_firmware_contract_can_pass_preflight_without_granting_catalog_support(self):
+        self._common_payload()
+        metadata = self._target_metadata()
+        metadata["allowed_device_classes"] = ["j714sap"]
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1",
+            "qualified_machines": {"j714sap": ["27.3"]},
+            "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]},
+        }
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        installer.sysinfo = SimpleNamespace(device_class="j714sap", sys_firmware="mBoot-20457.60.65.0.1")
+        installer.ipsw.version = "27.3"
+        adapter = self._adapter(installer)
+        adapter.preflight(self.plan)
+        self.assertTrue(adapter.common_stage1)
+        self.assertEqual(installer.dutil.add_calls, [])
+
+    def test_j714s_cannot_fall_back_to_generic_or_mixed_board_install_metadata(self):
+        for allowed, policy in ((None, None), (["j714sap"], None),
+                                (["j714sap", "j714cap"], {
+                                    "kind": "common-raw-v1", "qualified_machines": {"j714sap": ["27.3"]},
+                                    "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]}}),
+                                (["j714sap"], {
+                                    "kind": "common-raw-v1", "qualified_machines": {"j714sap": ["27.3"]}})):
+            with self.subTest(allowed=allowed, policy=policy):
+                metadata = self._target_metadata()
+                if allowed is not None:
+                    metadata["allowed_device_classes"] = allowed
+                if policy is not None:
+                    metadata["aurora_stage1"] = policy
+                self._write_metadata([metadata])
+                installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+                installer.sysinfo = SimpleNamespace(device_class="j714sap", sys_firmware="mBoot-20457.60.65.0.1")
+                installer.ipsw.version = "27.3"
+                adapter = self._adapter(installer)
+                with self.assertRaisesRegex(AsahiAdapterError, "exact single-board.*candidate profile"):
+                    adapter.preflight(self.plan)
+                self.assertEqual(installer.dutil.add_calls, [])
+                self.assertFalse(hasattr(installer, "ins"), "reject before selecting/loading firmware")
+
+    def test_legacy_common_policy_without_common_member_keeps_legacy_preflight(self):
+        metadata = self._target_metadata()
+        metadata["aurora_stage1"] = {
+            "kind": "common-raw-v1", "qualified_machines": {"j613ap": ["14.8.3"]},
+        }
+        self._write_metadata([metadata])
+        installer = FakeInstaller(FakeDiskUtil([[self.free]]))
+        adapter = self._adapter(installer)
+        adapter.preflight(self.plan)
+        self.assertFalse(adapter.common_stage1)
+        self.assertEqual(installer.dutil.add_calls, [])
 
     def _neo_payload(self, stage2=b"m1n1 neo"):
         with zipfile.ZipFile(self.payload, "a") as archive:
@@ -2021,6 +2137,41 @@ def j700_stage1(path=b"", window=0, uuid=b""):
 
 class BoardStage1Tests(unittest.TestCase):
     UUID = "97c92d03-2cb3-461f-9134-134a58cc9fdc"
+
+    def test_exact_system_firmware_qualification_is_board_and_stub_specific(self):
+        template = {"aurora_stage1": {
+            "kind": "common-raw-v1",
+            "qualified_machines": {"j714sap": ["27.3"]},
+            "qualified_system_firmware": {"j714sap": ["mBoot-20457.60.65.0.1"]},
+        }}
+        self.assertTrue(common_stage1_allowed(template, "j714sap", "27.3",
+                        system_firmware="mBoot-20457.60.65.0.1"))
+        for board in ("j714cap", "j716sap", "j714s", "j714sapx"):
+            with self.subTest(board=board):
+                self.assertFalse(common_stage1_allowed(template, board, "27.3",
+                                 system_firmware="mBoot-20457.60.65.0.1"))
+        for version in ("27.2", "27.3 beta 1", "27.30"):
+            with self.subTest(version=version), self.assertRaisesRegex(
+                    AsahiAdapterError, "not qualified.*installation firmware"):
+                common_stage1_allowed(template, "j714sap", version,
+                                      system_firmware="mBoot-20457.60.65.0.1")
+
+    def test_malformed_system_firmware_policy_fails_closed(self):
+        for policy in (None, [], {"j714sap": []}, {"j714sap": "mBoot-x"},
+                       {"j714sap": [None]}, {"j714sap": [""]},
+                       {"j714cap": ["mBoot-20457.60.65.0.1"]}):
+            with self.subTest(policy=policy), self.assertRaisesRegex(
+                    AsahiAdapterError, "invalid qualified Stage 1 system firmware contract"):
+                common_stage1_allowed({"aurora_stage1": {
+                    "kind": "common-raw-v1",
+                    "qualified_machines": {"j714sap": ["27.3"]},
+                    "qualified_system_firmware": policy,
+                }}, "j714sap", "27.3", system_firmware="mBoot-20457.60.65.0.1")
+
+    def test_legacy_common_metadata_does_not_require_system_firmware(self):
+        self.assertTrue(common_stage1_allowed({"aurora_stage1": {
+            "kind": "common-raw-v1", "qualified_machines": {"j700ap": ["26.6.2"]},
+        }}, "j700ap", "26.6.2"))
 
     def test_the_block_is_filled_in_place(self):
         import struct as _struct

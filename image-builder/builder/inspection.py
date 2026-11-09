@@ -73,6 +73,7 @@ def _load(name: str, file: str):
 
 
 candidate_set = _load("candidate_set", "candidate_set.py")
+stage1_qualification = _load("stage1_qualification", "stage1_qualification.py")
 limine = _load("apple_limine", "apple_limine.py")
 installed_system = _load("verify_installed_system", "verify_installed_system.py")
 # The raw Stage 1 the engine enrolls on a MacBook Neo.
@@ -283,7 +284,7 @@ def check_refused(root: Path, policy: dict) -> str:
     return "none of " + ", ".join(policy["refused_packages"]) + " installed"
 
 
-def check_installed_payloads(root: Path, candidates: Candidates) -> str:
+def check_installed_payloads(root: Path, candidates: Candidates, image_profile: str = "production") -> str:
     release = candidates.kernel_release()
     expected = {
         "usr/lib/asahi-boot/m1n1.bin": candidates.boot_owners["usr/lib/asahi-boot/m1n1.bin"],
@@ -304,6 +305,12 @@ def check_installed_payloads(root: Path, candidates: Candidates) -> str:
     require(stage2.is_file() and not stage2.is_symlink()
             and stage2.read_bytes() == (root / "boot/efi/m1n1/boot.bin").read_bytes(),
             "the J700 Stage 2 does not match the inspected common bundle")
+    qualification = stage1_qualification.load(profile=image_profile)
+    if qualification is not None:
+        common = root / "boot/efi/aurora/stage1.bin"
+        require(common.is_file() and not common.is_symlink()
+                and common.read_bytes() == candidates.member(candidates.boot_owners[STAGE1], STAGE1),
+                "the common Stage 1 does not match the authenticated m1n1-aurora package")
     return f"m1n1, U-Boot, the kernel and {len(candidates.dtbs())} device trees match the set's archives"
 
 
@@ -435,13 +442,18 @@ def check_supported_models(root: Path, candidates: Candidates, report: dict, pol
     return f"{len(models)} Macs: " + " ".join(name.removesuffix(".dtb") for name in models)
 
 
-def check_limine(root: Path, candidates: Candidates, report: dict) -> str:
+def check_limine(root: Path, candidates: Candidates, report: dict, image_profile: str = "production") -> str:
     sections = limine.validate_artifacts(root, KERNEL)
     release = candidates.kernel_release()
+    if stage1_qualification.expected_arguments(stage1_qualification.load(profile=image_profile)):
+        require(candidates.packages[KERNEL]["version"] == stage1_qualification.J714S_KERNEL_VERSION
+                and release == stage1_qualification.J714S_KERNEL_RELEASE,
+                "J714s budgets require the exact candidate kernel package and release")
     require(sections[".linux"] == candidates.member(KERNEL, f"usr/lib/modules/{release}/vmlinuz"),
             "the UKI's kernel is not the set's")
     report["uki"] = {"release": release, "initramfs_bytes": len(sections[".initrd"]),
                      "cmdline": sections[".cmdline"].rstrip(b"\0 \n").decode(errors="replace")}
+    stage1_qualification.check_arguments(report["uki"]["cmdline"], image_profile)
     return f"Limine at BOOTAA64.EFI boots omarchy_{KERNEL}.efi ({release}) with the set's kernel"
 
 
@@ -783,7 +795,9 @@ def check_factory(factory: Path, root: Path, candidates: Candidates) -> str:
 
 
 def inspect(root: Path, candidates_dir: Path, channel: str, factory: Path | None = None,
-            trust: Path = candidate_set.TRUST, profile: str = "release") -> dict:
+            trust: Path | None = None, profile: str = "release", image_profile: str = "production") -> dict:
+    selected = _load("image_profile", "image_profile.py").select(image_profile)
+    trust = selected["trust"] if trust is None else trust
     policy = candidate_set.load_policy(trust)
     candidates = Candidates(candidates_dir)
     report: dict = {
@@ -803,12 +817,12 @@ def inspect(root: Path, candidates_dir: Path, channel: str, factory: Path | None
         ("minimum-versions", lambda: check_minimum_versions(root, policy)),
         ("refused-packages", lambda: check_refused(root, policy)),
         ("apple-packages", lambda: check_apple_packages(root, report)),
-        ("installed-boot-payloads", lambda: check_installed_payloads(root, candidates)),
+        ("installed-boot-payloads", lambda: check_installed_payloads(root, candidates, image_profile)),
         ("candidate-files", lambda: check_candidate_files(root, candidates, report)),
         ("package-mtrees", lambda: check_package_mtrees(root, candidates)),
         ("m1n1-stage2", lambda: m1n1_stage2(root, candidates, report)),
         ("aurora-device-trees", lambda: check_supported_models(root, candidates, report, policy)),
-        ("limine-uki", lambda: check_limine(root, candidates, report)),
+        ("limine-uki", lambda: check_limine(root, candidates, report, image_profile)),
         ("embedded-initramfs", lambda: check_embedded_initramfs(root, report)),
         ("boot-splash", lambda: check_boot_splash(root, report)),
         ("boot-maintenance", lambda: check_maintenance(root)),

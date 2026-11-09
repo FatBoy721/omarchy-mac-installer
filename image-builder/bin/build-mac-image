@@ -50,7 +50,6 @@ ASAHI_KEYRING_FILE=asahi-alarm-keyring-20241216-1-any.pkg.tar.xz
 ASAHI_KEYRING_SHA256=798f4b283ad2819aee950d042f26566ae1a68f87c12247301ce449bea3b2d81e
 ASAHI_KEY=12CE6799A94A3F1B5DDFFE88F576553597FB8FEB
 OMARCHY_REPOSITORY_KEY=40DFB630FF42BCFFB047046CF0134EE680CAC571
-CANDIDATE_KEY=E11E851AF82E02AEF54C8794599A6024E3D35379
 
 # The first transaction: a bootable base and the settings package, so its
 # pacman platform guard is resident before any platform package arrives.
@@ -68,7 +67,7 @@ TOOLCHAIN=(pacman arch-install-scripts btrfs-progs e2fsprogs dosfstools libarchi
 
 usage() {
   cat <<'USAGE'
-Usage: bin/build-mac-image --inputs FILE [--candidates DIR] [--cache DIR] [--lab-access DIR] [--recovery-app DIR] [--dry-run] OUT
+Usage: bin/build-mac-image --inputs FILE [--image-profile production|j714s-developer] [--candidates DIR] [--cache DIR] [--lab-access DIR] [--recovery-app DIR] [--dry-run] OUT
 
 Builds the Apple Silicon image for the candidate set in DIR from the inputs
 record FILE (bin/mac-image-inputs resolve) into the empty or missing directory
@@ -182,6 +181,12 @@ record_field() {
   sed -n "s/^$1=//p" "$2"
 }
 
+input_image_profile() {
+  local value
+  value=$(record_field image_profile "$1")
+  echo "${value:-production}"
+}
+
 # The set a record names: a signed candidate set, or a channel set
 # (channel_set=, mac-image-inputs resolve --channel-set).
 record_kind() {
@@ -214,10 +219,10 @@ import_channel_set() {
 
 host_main() {
   local inputs="" candidates="" cache="" lab_access="" recovery_app="" out commit status clean=true started=$SECONDS dry_run=false
-  local cache_mounts=() lab_mounts=() recovery_mounts=() kind recovery_digest
+  local cache_mounts=() lab_mounts=() recovery_mounts=() kind recovery_digest image_profile=production
   while (($#)); do
     case $1 in
-      --inputs|--candidates|--cache|--lab-access|--recovery-app)
+      --inputs|--candidates|--cache|--lab-access|--recovery-app|--image-profile)
         (($# > 1)) && [[ -n $2 ]] || usage_error "$1 requires a value"
         case $1 in
           --inputs) inputs=$2 ;;
@@ -225,6 +230,7 @@ host_main() {
           --cache) cache=$2 ;;
           --lab-access) lab_access=$2 ;;
           --recovery-app) recovery_app=$2 ;;
+          --image-profile) image_profile=$2 ;;
         esac
         shift 2
         ;;
@@ -241,10 +247,13 @@ host_main() {
     command -v "$tool" >/dev/null 2>&1 || fail "missing command: $tool"
   done
   "$BASH" "$ROOT/bin/mac-image-inputs" check "$inputs" >/dev/null
+  python3 "$ROOT/builder/image_profile.py" trust "$image_profile" >/dev/null || usage_error "unknown image profile: $image_profile"
+  [[ $(input_image_profile "$inputs") == "$image_profile" ]] || fail "--image-profile does not match the profile recorded in the inputs"
   inputs=$(cd -- "$(dirname -- "$inputs")" && pwd)/$(basename -- "$inputs")
   kind=$(record_kind "$inputs")
   if [[ $kind == channel ]]; then
     [[ -z $candidates ]] || usage_error "a channel record takes no --candidates"
+    [[ $image_profile == production ]] || fail "a channel set supports only the production image profile"
     [[ -z $lab_access ]] || fail "a lab image is built from a candidate set only, not from a channel record"
   else
     [[ -n $candidates && -d $candidates ]] || usage_error "--candidates names no directory"
@@ -285,7 +294,7 @@ host_main() {
     python3 "$ROOT/builder/candidate_set.py" import --input "$candidates" --output "$host_work/candidates" \
       --receipt-sha256 "$(record_field candidate_receipt_sha256 "$inputs")" \
       --manifest-sha256 "$(record_field candidate_manifest_sha256 "$inputs")" \
-      --source-commit "$(record_field candidate_source_commit "$inputs")" >"$host_work/import.txt" ||
+      --source-commit "$(record_field candidate_source_commit "$inputs")" --image-profile "$image_profile" >"$host_work/import.txt" ||
       fail "the candidate set does not verify against the inputs record"
     [[ $(sed -n 's/^signer=//p' "$host_work/import.txt") == "$(record_field candidate_signer "$inputs")" ]] ||
       fail "the candidate set is signed by another key than the inputs record names"
@@ -339,6 +348,7 @@ host_main() {
     -e MAC_IMAGE_BUILDER_CLEAN="$clean" \
     -e MAC_IMAGE_BUILDER_IMAGE="$(docker image inspect --format '{{.Id}}' "$host_image")" \
     -e MAC_IMAGE_WORKFLOW_RUN="${GITHUB_RUN_ID:-local}" \
+    -e MAC_IMAGE_PROFILE="$image_profile" \
     "$host_image" /bin/bash /src/bin/build-mac-image --in-container &
   host_docker=$!
   wait "$host_docker" || fail "the build failed (logs in $out/logs)"
@@ -360,6 +370,9 @@ apple_names=()
 lane=""
 test_image_pin=""
 profile=release
+image_profile=production
+candidate_profile=production
+candidate_trust_dir="$ROOT/builder/candidate-trust"
 lab_access_dir=/lab-access
 lab_access_sha256=""
 package_set_digest=""
@@ -511,7 +524,7 @@ prepare_toolchain() {
   # carries this key, and a channel build never trusts it.
   trust_key "$ROOT/builder/keys/omarchy-repository.gpg" "$OMARCHY_REPOSITORY_KEY" "the Omarchy repository key"
   [[ $(set_kind) == channel ]] ||
-    trust_key "$ROOT/builder/candidate-trust/public.asc" "$CANDIDATE_KEY" "the candidate test key"
+    trust_key "$candidate_trust_dir/public.asc" "$(jq -r .signing_fingerprint "$candidate_trust_dir/policy.json")" "the candidate profile key"
 }
 
 trust_key() {
@@ -846,7 +859,7 @@ available_base() {
 precheck_transaction() {
   local resolved refused name
   # Every image carries the complete reviewed Aurora support stack.
-  for name in $(jq -r '.support_packages[]' "$ROOT/builder/candidate-trust/policy.json"); do
+  for name in $(jq -r '.support_packages[]' "$candidate_trust_dir/policy.json"); do
     jq -e --arg name "$name" '.packages[] | select(.name == $name and .group == "support")' \
       "$candidates/import.json" >/dev/null || fail "Aurora support package is missing: $name"
   done
@@ -859,7 +872,7 @@ precheck_transaction() {
   while read -r name; do
     grep -Eq "^omarchy-candidates $name " <<<"$resolved" || fail "$name does not resolve from the candidate set"
   done < <(jq -r '.packages[].name' "$candidates/import.json")
-  for refused in $(jq -r '.refused_packages[]' "$ROOT/builder/candidate-trust/policy.json"); do
+  for refused in $(jq -r '.refused_packages[]' "$candidate_trust_dir/policy.json"); do
     ! grep -Eq "^[^ ]+ $refused " <<<"$resolved" || fail "the package set pulls in the refused $refused"
   done
 }
@@ -1132,6 +1145,8 @@ apply_presets() {
 finalize_root() {
   bash "$ROOT/builder/finalize-root" --root "$target" >>"$logs/finalize.log" 2>&1 ||
     fail "could not finalize the image root (logs/finalize.log)"
+  python3 "$ROOT/builder/stage1_qualification.py" seed-cmdline "$target" "$candidates" --profile "$candidate_profile" >>"$logs/finalize.log" 2>&1 ||
+    fail "could not seed the reviewed candidate command line (logs/finalize.log)"
 }
 
 # Sets node_filename, node_url, node_size and node_sha256 from the pin, or fails.
@@ -1345,6 +1360,11 @@ stage_board_boot_payloads() {
   mkdir -p "$target/boot/efi/aurora" "$target/boot/efi/m1n1"
   install -m 0644 "$stage1" "$target/boot/efi/aurora/stage1-j700.bin"
   install -m 0644 "$stage2" "$target/boot/efi/m1n1/boot-j700.bin"
+  local qualification
+  qualification=$(python3 "$ROOT/builder/stage1_qualification.py" --profile "$candidate_profile") || fail "invalid Stage 1 qualification policy"
+  if [[ $qualification != null ]]; then
+    install -m 0644 "$stage1" "$target/boot/efi/aurora/stage1.bin"
+  fi
 }
 
 # Repository names in pacman configuration FILE, in its order.
@@ -1619,19 +1639,25 @@ payload_name() {
 }
 
 write_installer_data() {
+  local qualification
+  qualification=$(python3 "$ROOT/builder/stage1_qualification.py" --profile "$candidate_profile") || fail "invalid Stage 1 qualification policy"
   jq -S -n --arg package "$1" --argjson esp "$ESP_SIZE" --argjson boot "$BOOT_SIZE" --argjson root "$ROOT_SIZE" \
+    --argjson qualification "$qualification" \
     --arg volume_id "$ESP_VOLUME_ID" \
     --arg recovery_app_manifest "$(field recovery_app_manifest_sha256)" \
     --args '{os_list: [{
       name: "Omarchy", default_os_name: "Omarchy", omarchy_target: "apple-silicon-full-os",
       boot_object: "m1n1.bin", next_object: "m1n1/boot.bin", package: $package, icon: "omarchy-volume.icns",
-      supported_fw: $ARGS.positional,
+      supported_fw: (if $qualification == null then $ARGS.positional
+        else ($ARGS.positional + [$qualification.qualified_machines[][]] | unique) end),
       partitions: [
         {name: "EFI", type: "EFI", size: "\($esp)B", format: "fat", volume_id: $volume_id,
           copy_firmware: true, copy_installer_data: true, source: "esp"},
         {name: "Boot", type: "Linux", size: "\($boot)B", image: "boot.img"},
         {name: "Root", type: "Linux", size: "\($root)B", expand: true, image: "root.img"}]}
-      + (if $recovery_app_manifest != "" then {recovery_gui: "omarchy-native-v1"} else {} end)]}' \
+      + (if $recovery_app_manifest != "" then {recovery_gui: "omarchy-native-v1"} else {} end)
+      + (if $qualification != null then {aurora_stage1: $qualification,
+          allowed_device_classes: ($qualification.qualified_machines | keys)} else {} end)]}' \
     "${SUPPORTED_FW[@]}" >"$2"
 }
 
@@ -1684,6 +1710,7 @@ write_provenance() {
 # The inputs IMAGE names (mac-image-check IMAGE_INPUTS): a channel image names
 # its set and the channel database's sha256 in place of the candidate set's.
 image_inputs() {
+  [[ $(input_image_profile /inputs) == production ]] || echo image_profile
   if [[ $(set_kind) == channel ]]; then
     echo channel_set channel_signer channel_manifest_sha256 omarchy_channel omarchy_db_sha256
   else
@@ -1750,7 +1777,10 @@ interrupted() {
 
 container_main() {
   (($# == 0)) || usage_error "--in-container takes no arguments"
+  candidate_profile=${MAC_IMAGE_PROFILE:-production}
+  candidate_trust_dir=$(python3 "$ROOT/builder/image_profile.py" trust "$candidate_profile") || fail "unknown image profile: $candidate_profile"
   lane=$(field omarchy_channel)
+  [[ $(input_image_profile /inputs) == "$candidate_profile" ]] || fail "image profile differs from the checked inputs"
   if [[ -d $lab_access_dir ]]; then
     [[ $lane == edge ]] || fail "a lab image is built for the edge lane only"
     profile=lab
@@ -1796,7 +1826,7 @@ build_payload() {
   seal_images
   step "inspecting the images"
   python3 "$ROOT/bin/mac-image-check" image "$lane" "$work/final/root.img" "$work/final/boot.img" "$work/final/esp" \
-    --candidates "$candidates" --report /out/INSPECTION --profile "$profile" ||
+    --candidates "$candidates" --report /out/INSPECTION --profile "$profile" --image-profile "$candidate_profile" ||
     fail "the images do not pass inspection (INSPECTION)"
   step "packaging"
   zip=/out/$(payload_name)
@@ -1805,7 +1835,7 @@ build_payload() {
   find "$work/final" -exec touch -h -d "$(field resolved_at)" {} +
   (cd "$work/final" && bsdtar --format zip -cf "$zip" esp boot.img root.img omarchy-volume.icns)
   write_installer_data "${zip##*/}" /out/installer_data.json
-  python3 "$ROOT/bin/mac-image-check" payload "$lane" "$zip" /out/installer_data.json --profile "$profile" ||
+  python3 "$ROOT/bin/mac-image-check" payload "$lane" "$zip" /out/installer_data.json --profile "$profile" --image-profile "$candidate_profile" ||
     fail "the payload does not pass the layout check"
   write_provenance "$zip" >/out/PROVENANCE
   write_image >/out/IMAGE

@@ -68,6 +68,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "builder"))
 import recovery_app  # noqa: E402
+import stage1_qualification  # noqa: E402
+import image_profile as image_profile_data  # noqa: E402
 ROOT_UUID = "4f4d5801-524f-4f54-8000-000000000001"
 BOOT_UUID = "4f4d5801-424f-4f54-8000-000000000001"
 ESP_UUID = "4F4D-5801"
@@ -143,12 +145,16 @@ def require(condition: bool, message: str) -> None:
         raise CheckError(message)
 
 
-def expected_metadata(package: str, native_recovery: bool = False) -> dict:
+def expected_metadata(package: str, native_recovery: bool = False, image_profile: str = "production") -> dict:
     """The one Omarchy target every Mac installs: no board restriction (the
     catalog and the engine refuse the Macs it does not support), and every
     Mac's OS firmware, of which the engine's per-device table picks each
     Mac's."""
-    return {
+    qualification = stage1_qualification.load(profile=image_profile)
+    supported_fw = ["13.5", "14.8.3", "26.6.2"]
+    if qualification is not None:
+        supported_fw = sorted(set(supported_fw) | {version for versions in qualification["qualified_machines"].values() for version in versions})
+    result = {
         "os_list": [
             {
                 **({"recovery_gui": "omarchy-native-v1"} if native_recovery else {}),
@@ -173,10 +179,14 @@ def expected_metadata(package: str, native_recovery: bool = False) -> dict:
                     {"image": "boot.img", "name": "Boot", "size": f"{BOOT_SIZE}B", "type": "Linux"},
                     {"expand": True, "image": "root.img", "name": "Root", "size": f"{ROOT_SIZE}B", "type": "Linux"},
                 ],
-                "supported_fw": ["13.5", "14.8.3", "26.6.2"],
+                "supported_fw": supported_fw,
             }
         ]
     }
+    if qualification is not None:
+        result["os_list"][0]["aurora_stage1"] = qualification
+        result["os_list"][0]["allowed_device_classes"] = sorted(qualification["qualified_machines"])
+    return result
 
 
 # ── payload ────────────────────────────────────────────────────────────────
@@ -227,7 +237,7 @@ def check_plaintext_root(header: bytes, where: str) -> None:
 
 
 def check_payload(lane: str, package: Path, installer_data: Path, profile: str = "release",
-                  recovery_digest: str | None = None) -> dict[str, str]:
+                  recovery_digest: str | None = None, image_profile: str = "production") -> dict[str, str]:
     check_profile(lane, profile)
     name = package.name
     match = PAYLOAD_NAME.fullmatch(name)
@@ -244,7 +254,7 @@ def check_payload(lane: str, package: Path, installer_data: Path, profile: str =
     native_recovery = metadata.get("os_list", [{}])[0].get("recovery_gui") == "omarchy-native-v1"
     require(recovery_digest is None or native_recovery == bool(recovery_digest),
             "Recovery metadata does not match the pinned inputs")
-    require(metadata == expected_metadata(name, native_recovery), f"{installer_data} is not the installer_data for {name}")
+    require(metadata == expected_metadata(name, native_recovery, image_profile), f"{installer_data} is not the installer_data for {name}")
 
     try:
         archive = zipfile.ZipFile(package)
@@ -281,6 +291,9 @@ def check_payload(lane: str, package: Path, installer_data: Path, profile: str =
             require(not any(n.startswith(recovery_app.PREFIX) for n in members),
                     "Recovery app present without native Recovery metadata")
         required = set(REQUIRED_MEMBERS) | {"esp/aurora/stage1-j700.bin", "esp/m1n1/boot-j700.bin"}
+        qualification = stage1_qualification.load(profile=image_profile)
+        if qualification is not None:
+            required.add(stage1_qualification.COMMON_STAGE1)
         missing = sorted(required - set(members))
         require(not missing, "missing members: " + ", ".join(missing))
         require("esp/omarchy" in directories, "missing members: esp/omarchy/")
@@ -305,6 +318,9 @@ def check_payload(lane: str, package: Path, installer_data: Path, profile: str =
                 "the J700 Stage 1 has an invalid configuration block")
         require(archive.read("esp/m1n1/boot-j700.bin") == archive.read("esp/m1n1/boot.bin"),
                 "the J700 Stage 2 differs from the common bundle")
+        if qualification is not None:
+            require(archive.read(stage1_qualification.COMMON_STAGE1) == stage1,
+                    "the common Stage 1 differs from the matched package's J700 Stage 1")
 
         keep = {
             "boot.img": 0x488,
@@ -502,7 +518,16 @@ def runtime_providers(candidates: Path | None) -> dict[str, str]:
     return providers
 
 
-def check_state(root: Path, providers: dict[str, str] | None = None) -> None:
+def required_image_packages(image_profile: str = "production") -> set[str]:
+    selected = image_profile_data.select(image_profile)
+    required = set(IMAGE_PACKAGES)
+    policy = _module("candidate_set").load_policy(selected["trust"])
+    if image_profile == "j714s-developer" and "linux-aurora-headers" not in policy["boot_packages"]:
+        required.remove("linux-aurora-headers")
+    return required
+
+
+def check_state(root: Path, providers: dict[str, str] | None = None, image_profile: str = "production") -> None:
     check_provisioning(root)
     check_pristine(root)
     first_boot = root / "etc/systemd/system/multi-user.target.wants/omarchy-first-boot.service"
@@ -514,7 +539,8 @@ def check_state(root: Path, providers: dict[str, str] | None = None) -> None:
         require((root / destination.lstrip("/")).is_file(), f"{destination} is missing")
     packages = installed_packages(root)
     packages |= {role for role, name in (providers or {}).items() if name in packages}
-    missing = sorted((set(IMAGE_PACKAGES) | set(providers or {})) - packages)
+    required_packages = required_image_packages(image_profile)
+    missing = sorted((required_packages | set(providers or {})) - packages)
     require(not missing, f"the image lacks {missing}")
     require(not (root / "var/lib/systemd/random-seed").exists(), "the image keeps a random seed")
     require(not list((root / "etc/ssh").glob("ssh_host_*")) if (root / "etc/ssh").is_dir() else True,
@@ -558,6 +584,17 @@ def check_profile(lane: str, profile: str) -> None:
     require(profile != "lab" or lane == LAB_LANE, f"a lab image is refused on the {lane} lane")
 
 
+def recorded_image_profile(fields: dict[str, list[str]], prefix: str = "input.") -> str:
+    values = fields.get(prefix + "image_profile", ["production"])
+    require(len(values) == 1, "image profile is not unique")
+    name = values[0]
+    try:
+        image_profile_data.select(name)
+    except ValueError as error:
+        raise CheckError(str(error)) from error
+    return name
+
+
 def check_lab_access(root: Path, where: str, profile: str) -> str:
     """The lab overlay's access_sha256 in a lab tree, "" in a release tree."""
     lab = _module("lab_access")
@@ -582,11 +619,11 @@ def check_initramfs_lab_access(root: Path) -> None:
 
 
 def check_tree(root: Path, factory: Path | None = None, profile: str = "release",
-               providers: dict[str, str] | None = None) -> str:
+               providers: dict[str, str] | None = None, image_profile: str = "production") -> str:
     require(root.is_dir(), f"{root} is not a directory")
     check_fstab(root)
     check_boot(root)
-    check_state(root, providers)
+    check_state(root, providers, image_profile)
     check_secret_material(root, "the image")
     digest = check_lab_access(root, "the image", profile)
     check_initramfs_lab_access(root)
@@ -599,9 +636,9 @@ def check_tree(root: Path, factory: Path | None = None, profile: str = "release"
 
 
 def inspect_tree(lane: str, root: Path, factory: Path | None, candidates: Path, report: Path | None,
-                 lab_digest: str = "", profile: str = "release") -> None:
+                 lab_digest: str = "", profile: str = "release", image_profile: str = "production") -> None:
     inspection = _inspection()
-    result = inspection.inspect(root, candidates, lane, factory, profile=profile)
+    result = inspection.inspect(root, candidates, lane, factory, profile=profile, image_profile=image_profile)
     if lab_digest:
         result["profile"] = "lab"
         result["lab_access_sha256"] = lab_digest
@@ -627,7 +664,7 @@ def check_subvolumes(listed: list[str]) -> None:
 
 
 def check_image(lane: str, root_image: Path, boot_image: Path, esp: Path, candidates: Path, report: Path | None,
-                profile: str = "release") -> None:
+                profile: str = "release", image_profile: str = "production") -> None:
     check_profile(lane, profile)
     require(os.geteuid() == 0, "image checks mount the images and need root")
     for image, capacity in ((root_image, ROOT_SIZE), (boot_image, BOOT_SIZE)):
@@ -663,7 +700,7 @@ def check_image(lane: str, root_image: Path, boot_image: Path, esp: Path, candid
             factory.mkdir()
             run("mount", "-o", "ro,subvol=@factory", root_loop, str(factory))
             mounts.append(str(factory))
-            digest = check_tree(tree, factory, profile, runtime_providers(candidates))
+            digest = check_tree(tree, factory, profile, runtime_providers(candidates), image_profile)
             for subvolume, point in (("@", tree), ("@home", tree / "home"), ("@log", tree / "var/log"),
                                      ("@pkg", tree / "var/cache/pacman/pkg"), ("@factory", factory)):
                 check_secret_material(point, subvolume)
@@ -671,7 +708,7 @@ def check_image(lane: str, root_image: Path, boot_image: Path, esp: Path, candid
             # The lab overlay lives in @ (and @factory); the others carry none.
             for subvolume in ("@", "@home", "@log", "@pkg"):
                 check_lab_access(top / subvolume, f"{subvolume} (unmounted)", profile if subvolume == "@" else "release")
-            inspect_tree(lane, tree, factory, candidates, report, digest, profile)
+            inspect_tree(lane, tree, factory, candidates, report, digest, profile, image_profile)
         finally:
             for mount in reversed(mounts):
                 subprocess.run(["umount", mount], check=False)
@@ -787,6 +824,9 @@ def check_provenance(lane: str, directory: Path) -> None:
             "PROVENANCE's candidate sources do not match INSPECTION's runtime sources")
     check_receipt_record(lane, report.get("install_receipt"), fields, payload)
     channel = is_channel(fields, "input.")
+    candidate_profile = recorded_image_profile(fields)
+    require(not channel or candidate_profile == "production",
+            "a channel image cannot use the J714s developer profile")
     if channel:
         # The -dev runtime ships no source revision; the channel database and its archives name it.
         require(report.get("set_kind") == "channel"
@@ -806,7 +846,7 @@ def check_provenance(lane: str, directory: Path) -> None:
     require("hardware_profile" not in fields and "hardware_profile" not in report,
             "PROVENANCE or INSPECTION records a retired hardware profile")
     check_payload(lane, payload, installer_data, profile,
-                  fields.get("input.recovery_app_manifest_sha256", [""])[0])
+                  fields.get("input.recovery_app_manifest_sha256", [""])[0], candidate_profile)
 
 
 def check_receipt_record(lane: str, receipt: object, fields: dict[str, list[str]], payload: Path) -> None:
@@ -908,8 +948,11 @@ def check_descriptor(lane: str, directory: Path) -> None:
     provenance = directory / "PROVENANCE"
     require(inputs.is_file() and provenance.is_file(), "the inputs record and PROVENANCE are not beside IMAGE")
     input_fields = parse_fields(inputs)
+    candidate_profile = recorded_image_profile(input_fields, "")
     provenance_fields = parse_fields(provenance)
     require(is_channel(input_fields) == channel, "IMAGE and the inputs record name different kinds of set")
+    require(not channel or candidate_profile == "production",
+            "a channel image cannot use the J714s developer profile")
     for key in image_inputs:
         require(input_fields.get(key) == fields[key], f"IMAGE {key} does not match the inputs record")
         require(provenance_fields.get(f"input.{key}") == fields[key], f"IMAGE {key} does not match PROVENANCE")
@@ -937,7 +980,7 @@ def check_descriptor(lane: str, directory: Path) -> None:
     if channel:
         check_native_recovery(input_fields.get("recovery_app_manifest_sha256", [""])[0], "the inputs record")
     digests = check_payload(lane, payload, installer_data, profile,
-                            input_fields.get("recovery_app_manifest_sha256", [""])[0])
+                            input_fields.get("recovery_app_manifest_sha256", [""])[0], candidate_profile)
     recorded = {}
     for value in fields.get("image_sha256", []):
         require("|" in value, "IMAGE has a malformed image_sha256")
@@ -995,9 +1038,9 @@ def image_name(lane: str, directory: Path) -> str:
     return name
 
 
-USAGE = """Usage: mac-image-check payload <edge|rc|stable> PAYLOAD.zip INSTALLER_DATA.json [--profile lab]
-       mac-image-check image <edge|rc|stable> ROOT.img BOOT.img ESP_DIR --candidates DIR [--report FILE] [--profile lab]
-       mac-image-check tree <edge|rc|stable> ROOT_TREE [FACTORY_TREE] --candidates DIR [--report FILE] [--profile lab]
+USAGE = """Usage: mac-image-check payload <edge|rc|stable> PAYLOAD.zip INSTALLER_DATA.json [--profile lab] [--image-profile production|j714s-developer]
+       mac-image-check image <edge|rc|stable> ROOT.img BOOT.img ESP_DIR --candidates DIR [--report FILE] [--profile lab] [--image-profile production|j714s-developer]
+       mac-image-check tree <edge|rc|stable> ROOT_TREE [FACTORY_TREE] --candidates DIR [--report FILE] [--profile lab] [--image-profile production|j714s-developer]
        mac-image-check provenance <edge|rc|stable> BUILD_DIR
        mac-image-check descriptor <edge|rc|stable> BUILD_DIR
        mac-image-check name <edge|rc|stable> BUILD_DIR"""
@@ -1007,15 +1050,23 @@ def main(argv: list[str]) -> int:
     rest: list[str] = []
     options: dict[str, Path] = {}
     profile = "release"
+    image_profile = "production"
     arguments = iter(argv[1:])
     for arg in arguments:
-        if arg in ("--candidates", "--report", "--profile"):
+        if arg in ("--candidates", "--report", "--profile", "--image-profile"):
             value = next(arguments, None)
             if value is None or (arg == "--profile" and value not in PROFILES):
                 print(USAGE, file=sys.stderr)
                 return 64
             if arg == "--profile":
                 profile = value
+            elif arg == "--image-profile":
+                try:
+                    image_profile_data.select(value)
+                except ValueError:
+                    print(USAGE, file=sys.stderr)
+                    return 64
+                image_profile = value
             else:
                 options[arg[2:]] = Path(value)
         else:
@@ -1037,15 +1088,15 @@ def main(argv: list[str]) -> int:
         return 64
     try:
         if mode == "payload":
-            check_payload(lane, Path(paths[0]), Path(paths[1]), profile)
+            check_payload(lane, Path(paths[0]), Path(paths[1]), profile, image_profile=image_profile)
         elif mode == "image":
             check_image(lane, Path(paths[0]), Path(paths[1]), Path(paths[2]), options["candidates"], options.get("report"),
-                        profile)
+                        profile, image_profile)
         elif mode == "tree":
             factory = Path(paths[1]) if len(paths) == 2 else None
             check_profile(lane, profile)
-            digest = check_tree(Path(paths[0]), factory, profile, runtime_providers(options["candidates"]))
-            inspect_tree(lane, Path(paths[0]), factory, options["candidates"], options.get("report"), digest, profile)
+            digest = check_tree(Path(paths[0]), factory, profile, runtime_providers(options["candidates"]), image_profile)
+            inspect_tree(lane, Path(paths[0]), factory, options["candidates"], options.get("report"), digest, profile, image_profile)
         elif mode == "provenance":
             check_provenance(lane, Path(paths[0]))
         elif mode == "name":
