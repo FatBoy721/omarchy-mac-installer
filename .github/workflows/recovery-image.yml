@@ -199,7 +199,8 @@ jobs:
           set -euo pipefail
           bash image-builder/bin/mac-image-inputs resolve "$WORK/inputs" \
             --candidates "$WORK/input/candidate-set" --channel edge --image-profile j714s-developer \
-            --recovery-app "$WORK/input/recovery" --cache "$WORK/cache" 2>&1 | tee "$WORK/evidence/resolve.log"
+            --recovery-app "$WORK/input/recovery" --cache "$WORK/cache" \
+            --alarm-server 'https://arm-mirror.omarchy.org/$arch/$repo' 2>&1 | tee "$WORK/evidence/resolve.log"
           cp "$WORK/inputs" "$WORK/evidence/inputs"
           bash image-builder/bin/build-mac-image --inputs "$WORK/inputs" --image-profile j714s-developer \
             --candidates "$WORK/input/candidate-set" --recovery-app "$WORK/input/recovery" \
