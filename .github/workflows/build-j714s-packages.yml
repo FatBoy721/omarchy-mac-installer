@@ -1,0 +1,122 @@
+name: Build J714s fixed packages (fork)
+
+# Fork-only, artifact-only build of the two packages changed by the J714s
+# initramfs fix, using the pinned upstream Omarchy package builder. Nothing is
+# installed or published, and the packages are unsigned.
+on:
+  push:
+    branches: ['build/**']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native-package:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    env:
+      RECIPE_BASE: 30a33ee435db8f4a158ca41f82e91cc34bcd2e3b
+      BUILDER_SOURCE: omacom/omarchy-pkgs@30a33ee435db8f4a158ca41f82e91cc34bcd2e3b
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Check native ARM runner and install package inspection tools
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == aarch64 ]]
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential binutils file kmod libarchive-tools xz-utils zstd
+          WORK=$RUNNER_TEMP/native-j714s-headers
+          echo "WORK=$WORK" >> "$GITHUB_ENV"
+          mkdir -p "$WORK/evidence"
+          {
+            git rev-parse HEAD
+            uname -a
+            nproc
+            free -h
+            df -h / "$RUNNER_TEMP"
+            docker version --format '{{.Server.Version}} {{.Server.Arch}}'
+          } | tee "$WORK/evidence/host.txt"
+
+      - name: Prepare the pinned recipe and upstream package builder
+        run: |
+          set -euo pipefail
+          export XDG_CACHE_HOME="$WORK/cache"
+          Integration/M5/J714s-Normal-System/prepare "$WORK/prepared"
+          git --git-dir="$WORK/cache/omarchy-pkgs" worktree add --detach \
+            "$WORK/upstream" "$RECIPE_BASE"
+          # Restore only the pinned package metadata required by the upstream
+          # planner; Integration/prepare deliberately strips it from exports.
+          for package in omarchy-aurora-firmware linux-aurora; do
+            git --git-dir="$WORK/cache/omarchy-pkgs" show \
+              "$RECIPE_BASE:pkgbuilds/$package/.omarchy/package.json" \
+              > "$WORK/$package.package.json"
+            rm -rf "$WORK/upstream/pkgbuilds/$package"
+            cp -a "$WORK/prepared/pkgbuilds/$package" "$WORK/upstream/pkgbuilds/"
+            mkdir -p "$WORK/upstream/pkgbuilds/$package/.omarchy"
+            mv "$WORK/$package.package.json" \
+              "$WORK/upstream/pkgbuilds/$package/.omarchy/package.json"
+          done
+          {
+            printf 'installer_main=%s\n' "$(git rev-parse HEAD)"
+            printf 'recipe_base=%s\n' "$RECIPE_BASE"
+            printf 'builder_source=%s\n' "$BUILDER_SOURCE"
+            git -C "$WORK/upstream" rev-parse HEAD
+            printf 'builder_dockerfile_blob=%s\n' "$(git -C "$WORK/upstream" rev-parse HEAD:build/Dockerfile)"
+            printf 'builder_dockerfile_sha256=%s\n' "$(sha256sum "$WORK/upstream/build/Dockerfile" | cut -d' ' -f1)"
+            printf '%s\n' 'pacman_repository_db_hashes=not-retained-by-standard-bin-build'
+          } | tee "$WORK/evidence/source.txt"
+          grep -nE '^(FROM |SigLevel|Server = https://arm-)' \
+            "$WORK/upstream/build/Dockerfile" > "$WORK/evidence/builder-repository-config.txt"
+
+      - name: Build the firmware and kernel packages
+        env:
+          CONTAINER_ENGINE: docker
+          OMARCHY_PUBLISHED_REPO_URL: ''
+        run: |
+          set -euo pipefail
+          cd "$WORK/upstream"
+          ./bin/build --arch aarch64 --package omarchy-aurora-firmware linux-aurora 2>&1 | tee "$WORK/evidence/build.log"
+          [[ -d build-output/edge/aarch64 ]]
+          mapfile -t archives < <(find build-output/edge/aarch64 -maxdepth 1 -type f -name '*.pkg.tar.zst' -print | sort)
+          (( ${#archives[@]} > 0 ))
+          printf '%s\n' "${archives[@]}" | tee "$WORK/evidence/packages.txt"
+          for archive in "${archives[@]}"; do
+            name=${archive##*/}
+            bsdtar -xOf "$archive" .BUILDINFO > "$WORK/evidence/$name.BUILDINFO"
+          done
+          {
+            for image in omarchy-pkg-builder:latest-aarch64-edge docker.io/library/alpine:3.21; do
+              if docker image inspect "$image" --format '{{.Id}} {{json .RepoDigests}}' > "$WORK/evidence/.image-inspect" 2>/dev/null; then
+                printf '%s ' "$image"
+                cat "$WORK/evidence/.image-inspect"
+              else
+                printf '%s %s\n' "$image" 'image id/digest not available locally after build'
+              fi
+            done
+          } | tee "$WORK/evidence/container-images.txt"
+          rm -f "$WORK/evidence/.image-inspect"
+
+      - name: Check split-package metadata, ELF architecture, and external C module
+        run: |
+          set -euo pipefail
+          bash Integration/M5/J714s-Normal-System/tools/native-headers-check.sh \
+            "$WORK/upstream/build-output/edge/aarch64" 2>&1 | tee "$WORK/evidence/check.log"
+
+      - name: Upload unsigned packages and build evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: j714s-fixed-packages-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/native-j714s-headers/evidence/
+            ${{ runner.temp }}/native-j714s-headers/upstream/build-output/edge/aarch64/*.pkg.tar.zst
+          if-no-files-found: warn
+          retention-days: 14
