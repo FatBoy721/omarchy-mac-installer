@@ -871,8 +871,11 @@ precheck_transaction() {
   available_base
   resolved=$(target_pacman -Sp --print-format '%r %n %v' "${BOOTSTRAP[@]}" "${PLATFORM_PACKAGES[@]}" \
     "$(qualified omarchy)" "$(qualified omarchy-settings)" "${base_names[@]}" $(qualified "${APPLE_AUDIO[@]}") \
-    $(qualified "${apple_names[@]}" $(candidate_names boot) $(candidate_names support)) 2>>"$logs/precheck.log") ||
+    $(qualified "${apple_names[@]}" $(candidate_names boot) $(candidate_names support)) 2>>"$logs/precheck.log") || {
+    # pacman reports the unmet dependency or conflict on stdout, so keep it.
+    [[ -z $resolved ]] || printf '%s\n' "$resolved" | tee -a "$logs/precheck.log" >&2
     fail "the package set does not resolve against the pinned databases (logs/precheck.log)"
+  }
   printf '%s\n' "$resolved" >"$logs/precheck.log"
   while read -r name; do
     grep -Eq "^omarchy-candidates $name " <<<"$resolved" || fail "$name does not resolve from the candidate set"
