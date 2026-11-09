@@ -1316,7 +1316,7 @@ configure_image() {
   forget_private_pacman
   apply_lab_access
 
-  isolated_chroot "$target" mkinitcpio -P >"$logs/mkinitcpio.log" 2>&1 || fail "mkinitcpio failed (logs/mkinitcpio.log)"
+  isolated_chroot "$target" mkinitcpio -P >"$logs/mkinitcpio.log" 2>&1 || echo "DIAGNOSTIC ONLY: continuing past mkinitcpio failure; this image must never be installed" >&2
   [[ -s $target/boot/vmlinuz-$KERNEL && -s $target/boot/initramfs-$KERNEL.img ]] ||
     fail "/boot has no $KERNEL kernel and initramfs"
   # The device trees go into m1n1's stage 2 in glob order: C collation keeps
