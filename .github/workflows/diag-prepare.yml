@@ -1,0 +1,37 @@
+name: Diagnose J714s recipe preparation
+
+# Fork-only check of the J714s recipe preparation. Builds nothing.
+on:
+  push:
+    branches: ['diag/prepare-*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Prepare the recipes and inspect the result
+        run: |
+          set -euo pipefail
+          I=Integration/M5/J714s-Normal-System
+          O=$RUNNER_TEMP/prepared
+          bash "$I/prepare" "$O"
+          grep -n 'add_module' "$O/pkgbuilds/omarchy-aurora-firmware/aurora-vendor-order.install"
+          grep -n 'DM_INTEGRITY' "$O/pkgbuilds/linux-aurora/config" "$O/pkgbuilds/linux-aurora/j714s-required.config"
+          cd "$O/pkgbuilds/omarchy-aurora-firmware"
+          sha256sum aurora-vendor-order.install
+          grep -c "$(sha256sum aurora-vendor-order.install | cut -d' ' -f1)" PKGBUILD
+
+      - name: Run the preparation test
+        run: bash Integration/M5/J714s-Normal-System/tests/prepare.sh
